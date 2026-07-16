@@ -1,53 +1,28 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json
 
-groups:
-  - id: parents
-    label: Parents
-    colour: "#2563eb"
-  - id: children
-    label: Children
-    colour: "#16a34a"
+# This is a minimal starter config for you to adapt as you need. The hamnir documentation can help
+# you create more complete configurations; with groups, static content, client restrictions, etc.
 
 personas:
-  - name: Homer
-    description: Nuclear safety inspector
-    group: parents
+  - name: Alice
+    description: Sender
     claims:
-      sub: usr_homer
-      email: homer@example.test
+      sub: usr_alice
+      email: alice@example.test
       email_verified: true
-      name: Homer Simpson
-      catchphrase: "D'oh!"
-  - name: Marge
-    description: Homemaker
-    group: parents
+      name: Alice
+  - name: Bob
+    description: Recipient
     claims:
-      sub: usr_marge
-      email: marge@example.test
+      sub: usr_bob
+      email: bob@example.test
       email_verified: true
-      name: Marge Simpson
-      catchphrase: "Hrmm"
-  - name: Bart
-    description: Fourth grader
-    group: children
+      name: Bob
+  - name: Eve
+    description: Eavesdropper
     claims:
-      sub: usr_bart
-      email: bart@example.test
+      sub: usr_eve
+      email: eve@example.test
       email_verified: true
-      name: Bart Simpson
-  - name: Lisa
-    description: Second grader
-    group: children
-    claims:
-      sub: usr_lisa
-      email: lisa@example.test
-      email_verified: true
-      name: Lisa Simpson
-  - name: Maggie
-    description: Baby of the family
-    group: children
-    claims:
-      sub: usr_maggie
-      email: maggie@example.test
-      email_verified: true
-      name: Maggie Simpson
+      name: Eve
+      evesdropper: true
