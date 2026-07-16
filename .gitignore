@@ -9,3 +9,6 @@
 
 # claude superpowers stuff
 .superpowers/
+
+# macOS
+.DS_Store
