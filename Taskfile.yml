@@ -3,6 +3,7 @@ version: '3'
 
 vars:
   BINARY: hamnir
+  GORELEASER: go run github.com/goreleaser/goreleaser/v2@v2.17.0
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   REVISION:
@@ -47,3 +48,13 @@ tasks:
       - task: build
       - task: lint
       - task: test
+
+  release-check:
+    desc: Validate the goreleaser config
+    cmds:
+      - "{{.GORELEASER}} check"
+
+  release-snapshot:
+    desc: Build a local snapshot release into dist/ (no tag, no publish)
+    cmds:
+      - "{{.GORELEASER}} release --snapshot --clean"

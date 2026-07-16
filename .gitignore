@@ -1,5 +1,8 @@
-# build artifact
+# build artifacts
 /hamnir
+
+# goreleaser dist directory
+/dist/
 
 # default hamnir runtime storage
 /.hamnir/
