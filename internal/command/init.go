@@ -43,11 +43,15 @@ func Init(w io.Writer, configPath, keyPath string, force bool) error {
 	if err := os.WriteFile(configPath, []byte(minimalConfig), 0o644); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
-	fmt.Fprintln(w, "created", configPath)
+	if _, err := fmt.Fprintln(w, "created", configPath); err != nil {
+		return err
+	}
 
 	if _, err := provider.GenerateKey(keyPath); err != nil {
 		return fmt.Errorf("generate key: %w", err)
 	}
-	fmt.Fprintln(w, "created", keyPath)
+	if _, err := fmt.Fprintln(w, "created", keyPath); err != nil {
+		return err
+	}
 	return nil
 }

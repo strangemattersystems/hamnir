@@ -19,6 +19,6 @@ func Validate(w io.Writer, path string) error {
 	if len(cfg.Personas) == 1 {
 		noun = "persona"
 	}
-	fmt.Fprintf(w, "ok: %s (%d %s)\n", path, len(cfg.Personas), noun)
-	return nil
+	_, err = fmt.Fprintf(w, "ok: %s (%d %s)\n", path, len(cfg.Personas), noun)
+	return err
 }

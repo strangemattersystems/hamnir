@@ -57,7 +57,7 @@ func TestProvider(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != 200 {
 			t.Fatalf("discovery status %d", resp.StatusCode)
 		}
@@ -81,14 +81,14 @@ func TestProvider(t *testing.T) {
 		var doc struct {
 			JWKSURI string `json:"jwks_uri"`
 		}
-		json.NewDecoder(resp.Body).Decode(&doc)
-		resp.Body.Close()
+		_ = json.NewDecoder(resp.Body).Decode(&doc)
+		_ = resp.Body.Close()
 
 		jwks, err := srv.Client().Get(doc.JWKSURI)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer jwks.Body.Close()
+		defer func() { _ = jwks.Body.Close() }()
 		var set struct {
 			Keys []json.RawMessage `json:"keys"`
 		}

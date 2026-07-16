@@ -27,7 +27,7 @@ func freeAddr(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().String()
 }
 
@@ -37,7 +37,7 @@ func waitReady(t *testing.T, addr string) {
 	for range 100 {
 		c, err := net.Dial("tcp", addr)
 		if err == nil {
-			c.Close()
+			_ = c.Close()
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -76,7 +76,7 @@ func TestServe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 
 		if err := Serve(t.Context(), cfg, l.Addr().String(), key); err == nil {
 			t.Fatal("Serve returned nil, want error for in-use addr")

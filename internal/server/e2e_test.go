@@ -249,7 +249,7 @@ func TestEndToEnd_LogoutRevokesRefreshToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("logout: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// After logout the refresh token must be rejected.
 	if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err == nil {
@@ -322,7 +322,7 @@ func authorizeAndSelect(t *testing.T, client *http.Client, srvURL, authURL, sub 
 
 func readBody(t *testing.T, resp *http.Response) string {
 	t.Helper()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
