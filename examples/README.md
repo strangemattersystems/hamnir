@@ -45,3 +45,8 @@ Discovery, the token exchange and JWKS all happen over the container network, wh
 the browser is sent to a URL it can actually reach. Because hamnir mints the ID
 token's `iss` from the (internal) token-endpoint request, it matches what the app
 discovered — so verification succeeds. This is what hamnir's dynamic issuer is for.
+
+---
+
+<sub>Avatars from [Open Peeps](https://www.openpeeps.com) by Pablo Stanley,
+dedicated to the public domain under CC0 1.0 Universal. No attribution required.</sub>
