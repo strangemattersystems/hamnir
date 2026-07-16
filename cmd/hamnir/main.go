@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/urfave/cli/v3"
 
@@ -19,6 +21,8 @@ var (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
 	cli.VersionPrinter = func(*cli.Command) {
 		fmt.Printf("hamnir %s (rev %s, built %s)\n", version, revision, date)
 	}
@@ -36,11 +40,9 @@ func main() {
 					&cli.StringFlag{Name: "addr", Value: "127.0.0.1:5556", Usage: "listen address"},
 					&cli.StringFlag{Name: "key-file", Value: "./.hamnir/key.pem", Usage: "signing key path"},
 				},
-				Action: func(_ context.Context, cmd *cli.Command) error {
-					// serve owns structured JSON logging; init/validate stay plain.
-					slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
-					if err := command.Serve(cmd.String("config"), cmd.String("addr"), cmd.String("key-file")); err != nil {
-						return cli.Exit("", 1) // already logged as JSON by command.Serve
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if err := command.Serve(ctx, cmd.String("config"), cmd.String("addr"), cmd.String("key-file")); err != nil {
+						return cli.Exit("", 1)
 					}
 					return nil
 				},
@@ -70,10 +72,10 @@ func main() {
 		},
 	}
 
-	if err := root.Run(context.Background(), os.Args); err != nil {
-		// Errors from serve are already logged (slog) and arrive as an ExitCoder
-		// with an empty message: just honour the code. Plain errors from
-		// init/validate are printed here.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := root.Run(ctx, os.Args); err != nil {
 		if ec, ok := errors.AsType[cli.ExitCoder](err); ok {
 			os.Exit(ec.ExitCode())
 		}
