@@ -11,6 +11,14 @@ updates:
       prefix: chore
       include: scope
 
+  - package-ecosystem: gomod
+    directory: /examples/webapp
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: chore
+      include: scope
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -21,6 +29,14 @@ updates:
 
   - package-ecosystem: docker
     directory: /
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: docker
+    directory: /examples/webapp
     schedule:
       interval: daily
     commit-message:
