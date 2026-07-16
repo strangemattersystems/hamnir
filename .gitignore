@@ -1,5 +1,8 @@
 # build artifact
 /hamnir
 
+# default hamnir runtime storage
+/.hamnir/
+
 # claude superpowers stuff
 .superpowers/
