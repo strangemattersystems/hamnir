@@ -1,10 +1,7 @@
 // Command webapp is a minimal OpenID Connect relying party that logs in via
 // hamnir. It performs a standard Authorization Code + PKCE flow and, on success,
-// shows the claims from the verified ID token.
-//
-// The one wrinkle is running inside Docker Compose: the browser reaches hamnir at
-// a public URL (a published host port) while this container reaches it at an
-// internal service name. See discoverAndConfigure for how the two are reconciled.
+// shows the claims from the verified ID token alongside the claims returned by a
+// call to hamnir's userinfo endpoint.
 package main
 
 import (
@@ -28,14 +25,13 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
 	var (
-		internalURL = env("HAMNIR_INTERNAL_URL", "http://hamnir:5556")
-		publicURL   = env("HAMNIR_PUBLIC_URL", "http://localhost:5556")
+		hamnirURL   = env("HAMNIR_URL", "http://hamnir:5556")
 		clientID    = env("CLIENT_ID", "example-webapp")
 		redirectURI = env("REDIRECT_URI", "http://localhost:8080/callback")
 		addr        = env("ADDR", ":8080")
 	)
 
-	a, err := discoverAndConfigure(context.Background(), internalURL, publicURL, clientID, redirectURI)
+	a, err := discoverAndConfigure(context.Background(), hamnirURL, clientID, redirectURI)
 	if err != nil {
 		slog.Error("configure", "err", err)
 		os.Exit(1)
@@ -54,39 +50,25 @@ func main() {
 }
 
 type app struct {
+	provider *oidc.Provider
 	oauth2   oauth2.Config
 	verifier *oidc.IDTokenVerifier
 	tmpl     *template.Template
 }
 
-// discoverAndConfigure discovers hamnir and builds the OAuth2 config, reconciling
-// the internal (container-reachable) and public (browser-reachable) URLs.
-func discoverAndConfigure(ctx context.Context, internalURL, publicURL, clientID, redirectURI string) (*app, error) {
-	// Discover via the INTERNAL url — reachable from this container. hamnir's
-	// dynamic issuer echoes this url back as the issuer, so ID tokens minted at the
-	// (internal) token endpoint verify against it.
-	provider, err := discover(ctx, internalURL)
+// discoverAndConfigure discovers hamnir at a single URL and builds the OAuth2
+// config. hamnir advertises its authorization endpoint at a browser-reachable
+// URL, so no endpoint rewriting is needed here.
+func discoverAndConfigure(ctx context.Context, hamnirURL, clientID, redirectURI string) (*app, error) {
+	provider, err := discover(ctx, hamnirURL)
 	if err != nil {
-		return nil, fmt.Errorf("discover hamnir at %s: %w", internalURL, err)
+		return nil, fmt.Errorf("discover hamnir at %s: %w", hamnirURL, err)
 	}
-
-	// The browser cannot resolve the internal service name, so rewrite just the
-	// host of the discovered authorization endpoint to the PUBLIC url. Token
-	// exchange and JWKS stay on the internal url, which this container can reach.
-	authEndpoint, err := url.Parse(provider.Endpoint().AuthURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse authorization endpoint: %w", err)
-	}
-	pub, err := url.Parse(publicURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse public url %q: %w", publicURL, err)
-	}
-	authEndpoint.Scheme, authEndpoint.Host = pub.Scheme, pub.Host
-
 	return &app{
+		provider: provider,
 		oauth2: oauth2.Config{
 			ClientID:    clientID,
-			Endpoint:    oauth2.Endpoint{AuthURL: authEndpoint.String(), TokenURL: provider.Endpoint().TokenURL},
+			Endpoint:    provider.Endpoint(),
 			RedirectURL: redirectURI,
 			Scopes:      []string{oidc.ScopeOpenID, "email", "profile"},
 		},
@@ -171,6 +153,18 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userInfo, err := a.provider.UserInfo(ctx, oauth2.StaticTokenSource(token))
+	if err != nil {
+		http.Error(w, "userinfo request failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	var userinfoClaims map[string]any
+	if err := userInfo.Claims(&userinfoClaims); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	prettyUserinfo, _ := json.MarshalIndent(userinfoClaims, "", "  ")
+
 	var claims map[string]any
 	if err := idToken.Claims(&claims); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -184,10 +178,11 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = a.tmpl.Execute(w, map[string]any{
-		"Subject": idToken.Subject,
-		"Name":    claims["name"],
-		"Email":   claims["email"],
-		"Claims":  string(pretty),
+		"Subject":        idToken.Subject,
+		"Name":           claims["name"],
+		"Email":          claims["email"],
+		"IDTokenClaims":  string(pretty),
+		"UserinfoClaims": string(prettyUserinfo),
 	})
 }
 
@@ -249,7 +244,11 @@ const claimsPage = `<!doctype html>
 </style>
 <h1>Signed in &#10003;</h1>
 <p>You are <strong>{{if .Name}}{{.Name}}{{else}}{{.Subject}}{{end}}</strong>{{if .Email}} &lt;{{.Email}}&gt;{{end}}.</p>
-<p>These are the claims from the verified ID token:</p>
-<pre>{{.Claims}}</pre>
+<h2>Claims from the verified ID token</h2>
+<p>Verified locally against hamnir's JWKS — no extra network call.</p>
+<pre>{{.IDTokenClaims}}</pre>
+<h2>Claims from the userinfo endpoint</h2>
+<p>Fetched server-to-server with the access token.</p>
+<pre>{{.UserinfoClaims}}</pre>
 <p><a href="/login">Log in again</a></p>
 `

@@ -13,10 +13,7 @@ services:
     build:
       context: ./webapp
     environment:
-      # Reached over the Compose network (server-to-server): discovery, token, JWKS.
-      HAMNIR_INTERNAL_URL: http://hamnir:5556
-      # Where the browser is redirected (a published host port).
-      HAMNIR_PUBLIC_URL: http://localhost:5556
+      HAMNIR_URL: http://hamnir:5556
       CLIENT_ID: example-webapp
       REDIRECT_URI: http://localhost:8080/callback
       ADDR: ":8080"

@@ -2,11 +2,9 @@
 
 # Sample hamnir config for the Docker Compose example. The personas mirror the
 # `hamnir init` starter config.
-#
-# There is deliberately no `issuer:` set — hamnir derives the issuer from each
-# request's host. That is what lets the browser (http://localhost:5556) and the
-# webapp container (http://hamnir:5556) each receive an issuer they can reach.
-# See the README for the details.
+
+issuer: http://hamnir:5556
+browser_url: http://localhost:5556
 
 # Registering the web app as a client puts hamnir in strict mode: only these exact
 # redirect URIs are accepted. Delete this block to run in permissive dev mode
