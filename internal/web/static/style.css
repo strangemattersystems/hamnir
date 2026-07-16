@@ -1,0 +1,13 @@
+:root { color-scheme: light dark; }
+body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 2rem; }
+main { max-width: 900px; margin: 0 auto; }
+h1 { font-size: 1.4rem; }
+.group h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: .05em;
+  border-left: 3px solid #888; padding-left: .5rem; opacity: .8; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+.card { display: flex; flex-direction: column; gap: .25rem; text-align: left;
+  padding: 1rem; border: 1px solid #8884; border-left: 4px solid var(--accent, #888);
+  border-radius: 8px; background: transparent; cursor: pointer; font: inherit; }
+.card:hover { border-color: var(--accent, #888); }
+.name { font-weight: 600; }
+.desc { font-size: .85rem; opacity: .7; }
