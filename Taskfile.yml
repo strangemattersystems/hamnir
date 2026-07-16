@@ -32,6 +32,13 @@ tasks:
       - go test -race -cover ./...
 
   lint:
-    desc: Run golangci-lint 
+    desc: Run golangci-lint
     cmds:
       - go tool golangci-lint run ./...
+
+  ci:
+    desc: Run the full CI suite
+    cmds:
+      - task: build
+      - task: lint
+      - task: test
