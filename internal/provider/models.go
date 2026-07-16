@@ -108,7 +108,7 @@ func (c *client) LoginURL(id string) string            { return loginPath + id }
 func (c *client) AccessTokenType() op.AccessTokenType  { return c.accessTokenType }
 func (c *client) IDTokenLifetime() time.Duration       { return idTokenLifetime }
 func (c *client) DevMode() bool                        { return c.devMode }
-func (c *client) IDTokenUserinfoClaimsAssertion() bool { return false }
+func (c *client) IDTokenUserinfoClaimsAssertion() bool { return true }
 func (c *client) ClockSkew() time.Duration             { return 0 }
 func (c *client) RedirectURIGlobs() []string           { return c.redirectGlobs }
 func (c *client) PostLogoutRedirectURIGlobs() []string { return nil }

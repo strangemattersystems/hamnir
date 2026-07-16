@@ -116,7 +116,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 		redirectURI:   authReq.RedirectURI,
 		state:         authReq.State,
 		nonce:         authReq.Nonce,
-		scopes:        authReq.Scopes,
+		scopes:        withOfflineAccess(authReq.Scopes),
 		responseType:  authReq.ResponseType,
 		responseMode:  authReq.ResponseMode,
 		codeChallenge: codeChallenge(authReq),
@@ -416,6 +416,18 @@ func requestInfo(req op.TokenRequest) tokenInfo {
 	default:
 		return tokenInfo{subject: req.GetSubject(), scopes: req.GetScopes()}
 	}
+}
+
+// withOfflineAccess grants the offline_access scope by default so hamnir issues
+// refresh tokens without the relying party having to request it. op gates
+// refresh-token issuance on this scope being present in the granted set.
+func withOfflineAccess(scopes []string) []string {
+	for _, s := range scopes {
+		if s == oidc.ScopeOfflineAccess {
+			return scopes
+		}
+	}
+	return append(scopes[:len(scopes):len(scopes)], oidc.ScopeOfflineAccess)
 }
 
 func codeChallenge(authReq *oidc.AuthRequest) *oidc.CodeChallenge {
