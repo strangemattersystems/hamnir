@@ -128,6 +128,198 @@ func TestEndToEndAuthCodeFlow(t *testing.T) {
 	}
 }
 
+// TestEndToEnd_PKCEVerifierMismatch confirms the token endpoint rejects a code
+// exchange presenting the wrong PKCE verifier — proof that PKCE is enforced, not
+// merely accepted.
+func TestEndToEnd_PKCEVerifierMismatch(t *testing.T) {
+	srv, client := newServer(t, aliceConfig())
+	ctx := oidc.ClientContext(context.Background(), client)
+	rp, err := oidc.NewProvider(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+	oauthCfg := oauth2.Config{
+		ClientID:    "isen",
+		Endpoint:    rp.Endpoint(),
+		RedirectURL: "http://app.test/callback",
+		Scopes:      []string{oidc.ScopeOpenID},
+	}
+	verifier := oauth2.GenerateVerifier()
+	authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
+
+	code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL, "usr_alice"))
+	if code == "" {
+		t.Fatal("expected an auth code")
+	}
+
+	// Exchange with a DIFFERENT verifier than the challenge was derived from.
+	wrong := oauth2.GenerateVerifier()
+	if _, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(wrong)); err == nil {
+		t.Fatal("expected exchange with a mismatched PKCE verifier to be rejected")
+	}
+}
+
+// TestEndToEnd_StrictClientRejectsUnregisteredRedirect confirms that once a
+// client is configured (strict mode), an authorize request carrying a
+// redirect_uri the client did not register is refused — and, critically, the
+// user is never redirected to that unregistered URI (no open redirect).
+func TestEndToEnd_StrictClientRejectsUnregisteredRedirect(t *testing.T) {
+	cfg := aliceConfig()
+	cfg.Clients = []config.Client{{
+		ID:           "isen",
+		RedirectURIs: []string{"http://app.test/callback"},
+	}}
+	srv, client := newServer(t, cfg)
+	ctx := oidc.ClientContext(context.Background(), client)
+	rp, err := oidc.NewProvider(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+	oauthCfg := oauth2.Config{
+		ClientID:    "isen",
+		Endpoint:    rp.Endpoint(),
+		RedirectURL: "http://evil.test/callback", // NOT registered
+		Scopes:      []string{oidc.ScopeOpenID},
+	}
+	verifier := oauth2.GenerateVerifier()
+	authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
+
+	resp, err := client.Get(authURL)
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	body := readBody(t, resp)
+	if id := between(body, `name="authRequestID" value="`, `"`); id != "" {
+		t.Fatal("an unregistered redirect_uri must not reach the persona picker")
+	}
+	if resp.Request.URL.Host == "evil.test" {
+		t.Fatal("must not redirect to an unregistered redirect_uri (open redirect)")
+	}
+}
+
+// TestEndToEnd_LogoutRevokesRefreshToken confirms the whole revocation model:
+// after a full login, hitting the end-session endpoint invalidates the session's
+// refresh token so a later refresh grant is rejected.
+func TestEndToEnd_LogoutRevokesRefreshToken(t *testing.T) {
+	srv, client := newServer(t, aliceConfig())
+	ctx := oidc.ClientContext(context.Background(), client)
+	rp, err := oidc.NewProvider(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+	oauthCfg := oauth2.Config{
+		ClientID:    "isen",
+		Endpoint:    rp.Endpoint(),
+		RedirectURL: "http://app.test/callback",
+		Scopes:      []string{oidc.ScopeOpenID, "email"},
+	}
+	verifier := oauth2.GenerateVerifier()
+	authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
+
+	code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL, "usr_alice"))
+	if code == "" {
+		t.Fatal("expected an auth code")
+	}
+	tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+	if err != nil {
+		t.Fatalf("exchange: %v", err)
+	}
+	rawID, _ := tok.Extra("id_token").(string)
+	if rawID == "" || tok.RefreshToken == "" {
+		t.Fatalf("expected id and refresh tokens; id=%q refresh=%q", rawID, tok.RefreshToken)
+	}
+
+	// The refresh token works before logout.
+	if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err != nil {
+		t.Fatalf("refresh before logout should succeed: %v", err)
+	}
+
+	// Log out via the end-session endpoint (discovered from the metadata).
+	var disc struct {
+		EndSession string `json:"end_session_endpoint"`
+	}
+	if err := rp.Claims(&disc); err != nil {
+		t.Fatal(err)
+	}
+	if disc.EndSession == "" {
+		t.Fatal("provider metadata has no end_session_endpoint")
+	}
+	logoutURL := disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID)
+	resp, err := client.Get(logoutURL)
+	if err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	resp.Body.Close()
+
+	// After logout the refresh token must be rejected.
+	if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err == nil {
+		t.Fatal("refresh token should be rejected after logout")
+	}
+}
+
+// aliceConfig is the minimal permissive-mode config used across the end-to-end
+// tests: a single persona, no clients (so any client_id/redirect_uri is accepted).
+func aliceConfig() *config.Config {
+	return &config.Config{Personas: []config.Persona{
+		{Name: "Alice", Claims: map[string]any{
+			"sub": "usr_alice", "email": "alice@example.test",
+			"email_verified": true, "roles": []any{"coach"},
+		}},
+	}}
+}
+
+// newServer starts an httptest server for cfg with a cookie-jar client that stops
+// following redirects at the app's callback host (app.test) so tests can read the
+// authorization code out of the redirect.
+func newServer(t *testing.T, cfg *config.Config) (*httptest.Server, *http.Client) {
+	t.Helper()
+	key, err := provider.LoadOrGenerateKey(filepath.Join(t.TempDir(), "key.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(cfg, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	jar, _ := cookiejar.New(nil)
+	client := srv.Client()
+	client.Jar = jar
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Host == "app.test" {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	return srv, client
+}
+
+// authorizeAndSelect drives the authorize request to the picker, then posts the
+// persona selection, returning the resulting response (whose redirect carries the
+// authorization code).
+func authorizeAndSelect(t *testing.T, client *http.Client, srvURL, authURL, sub string) *http.Response {
+	t.Helper()
+	resp, err := client.Get(authURL)
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	body := readBody(t, resp)
+	authRequestID := between(body, `name="authRequestID" value="`, `"`)
+	if authRequestID == "" {
+		t.Fatalf("authRequestID not found in picker HTML: %s", body)
+	}
+	sel, err := client.PostForm(srvURL+"/login/select", url.Values{
+		"authRequestID": {authRequestID},
+		"sub":           {sub},
+	})
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	return sel
+}
+
 func readBody(t *testing.T, resp *http.Response) string {
 	t.Helper()
 	defer resp.Body.Close()
