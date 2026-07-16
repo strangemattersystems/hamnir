@@ -1,0 +1,32 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  BINARY: hamnir
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  REVISION:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo unknown
+  DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  LDFLAGS: >-
+    -X main.version={{.VERSION}}
+    -X main.revision={{.REVISION}}
+    -X main.date={{.DATE}}
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  build:
+    desc: Build the hamnir binary
+    cmds:
+      - go build -ldflags '{{.LDFLAGS}}' -o {{.BINARY}} ./cmd/hamnir
+
+  test:
+    desc: Run the test suite with the race detector and coverage
+    cmds:
+      - go test -race -cover ./...
