@@ -71,3 +71,22 @@ release:
 # Requires syft on PATH (installed in CI).
 sboms:
   - artifacts: archive
+
+dockers_v2:
+  - images:
+      - ghcr.io/strangemattersystems/hamnir
+    dockerfile: Dockerfile.goreleaser
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.source: "https://github.com/strangemattersystems/hamnir"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+      org.opencontainers.image.licenses: MIT
