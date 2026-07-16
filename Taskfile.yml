@@ -36,6 +36,11 @@ tasks:
     cmds:
       - go tool golangci-lint run ./...
 
+  fmt:
+    desc: Format the code
+    cmds:
+      - go tool golangci-lint fmt ./...
+
   ci:
     desc: Run the full CI suite
     cmds:
