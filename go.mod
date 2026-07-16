@@ -10,6 +10,8 @@ require (
 
 require github.com/coreos/go-oidc/v3 v3.20.0
 
+require github.com/urfave/cli/v3 v3.10.1
+
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
