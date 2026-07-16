@@ -15,10 +15,9 @@ import (
 // http.Handler. The provider serves discovery, /authorize, /token, /keys,
 // /userinfo, end-session and the auth callback at "/"; the picker's more
 // specific routes (/login, /login/select, /static/) take precedence.
+// cfg must come from config.Load, which normalises URLs and resolves
+// hamnir:// style static claim references.
 func New(cfg *config.Config, key *rsa.PrivateKey) (http.Handler, error) {
-	if err := static.RewriteClaims(cfg, static.Base(cfg)); err != nil {
-		return nil, err
-	}
 	set := persona.NewSet(cfg)
 	st, err := provider.NewStorage(cfg, key)
 	if err != nil {

@@ -19,7 +19,6 @@ var (
 	errEmptyStaticMount      = errors.New("empty static mount")
 	errStaticMountTraversal  = errors.New(".. is not allowed in a mount name")
 	errEmptyStaticDir        = errors.New("empty static directory")
-	errEmptyStaticPrefix     = errors.New("static paths set but prefix is empty")
 )
 
 var hexColour = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
@@ -65,9 +64,6 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if len(c.Static.Paths) > 0 && c.Static.Prefix == "" {
-		return errEmptyStaticPrefix
-	}
 	for mount, dir := range c.Static.Paths {
 		if mount == "" {
 			return errEmptyStaticMount

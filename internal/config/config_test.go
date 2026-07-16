@@ -104,6 +104,121 @@ personas:
 	if _, ok := cfg.Static.Paths["avatars"]; !ok {
 		t.Errorf("leading slash not stripped from mount key: %v", cfg.Static.Paths)
 	}
+
+	t.Run("prefix defaults without paths", func(t *testing.T) {
+		cfg, err := Load(writeTemp(t, "personas:\n  - claims: { sub: s }\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.Static.Prefix != "hamnir://" {
+			t.Errorf("prefix = %q, want hamnir://", cfg.Static.Prefix)
+		}
+	})
+}
+
+func TestLoad_NormalisesURLs(t *testing.T) {
+	tests := []struct {
+		name        string
+		yaml        string
+		wantIssuer  string
+		wantBrowser string
+	}{
+		{
+			"trailing slashes trimmed",
+			"issuer: http://localhost:5556/\nbrowser_url: http://localhost:9999/\npersonas:\n  - claims: { sub: s }\n",
+			"http://localhost:5556", "http://localhost:9999",
+		},
+		{
+			"already trimmed untouched",
+			"issuer: http://localhost:5556\npersonas:\n  - claims: { sub: s }\n",
+			"http://localhost:5556", "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Load(writeTemp(t, tt.yaml))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Issuer != tt.wantIssuer {
+				t.Errorf("Issuer = %q, want %q", cfg.Issuer, tt.wantIssuer)
+			}
+			if cfg.BrowserURL != tt.wantBrowser {
+				t.Errorf("BrowserURL = %q, want %q", cfg.BrowserURL, tt.wantBrowser)
+			}
+		})
+	}
+}
+
+func TestLoad_ResolvesStaticClaims(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "eve.svg"), []byte("<svg/>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	static := "static:\n  paths: { avatars: " + dir + " }\n"
+	eve := "personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars/eve.svg }\n"
+
+	tests := []struct {
+		name    string
+		yaml    string
+		want    string
+		wantErr error
+	}{
+		{
+			"resolves against issuer", "issuer: http://hamnir:5556\n" + static + eve,
+			"http://hamnir:5556/.static/avatars/eve.svg", nil,
+		},
+		{
+			"browser_url wins", "issuer: http://hamnir:5556\nbrowser_url: http://localhost:5556\n" + static + eve,
+			"http://localhost:5556/.static/avatars/eve.svg", nil,
+		},
+		{
+			"non-marker untouched", "issuer: http://hamnir:5556\n" + static +
+				"personas:\n  - claims: { sub: usr_eve, picture: https://example.test/eve.png }\n",
+			"https://example.test/eve.png", nil,
+		},
+		{
+			"missing file", "issuer: http://hamnir:5556\n" + static +
+				"personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars/missing.svg }\n",
+			"", ErrUnresolved,
+		},
+		{
+			"unknown mount", "issuer: http://hamnir:5556\n" + static +
+				"personas:\n  - claims: { sub: usr_eve, picture: hamnir://nope/eve.svg }\n",
+			"", ErrUnresolved,
+		},
+		{"ref without static block", "issuer: http://hamnir:5556\n" + eve, "", ErrUnresolved},
+		{"ref without base", static + eve, "", ErrNoBase},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Load(writeTemp(t, tt.yaml))
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("Load() err = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.Personas[0].Claims["picture"]; got != tt.want {
+				t.Errorf("picture = %v, want %q", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("nested value resolved", func(t *testing.T) {
+		cfg, err := Load(writeTemp(t, "issuer: http://hamnir:5556\n"+static+
+			"personas:\n  - claims: { sub: usr_eve, profile: { avatar: hamnir://avatars/eve.svg } }\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		got := cfg.Personas[0].Claims["profile"].(map[string]any)["avatar"]
+		if got != "http://hamnir:5556/.static/avatars/eve.svg" {
+			t.Errorf("nested avatar = %v", got)
+		}
+	})
 }
 
 func TestConfig_Validate_Static(t *testing.T) {
@@ -116,7 +231,6 @@ func TestConfig_Validate_Static(t *testing.T) {
 		{"empty mount", Static{Prefix: "hamnir://", Paths: map[string]string{"": "./a"}}, errEmptyStaticMount},
 		{"traversal mount", Static{Prefix: "hamnir://", Paths: map[string]string{"../x": "./a"}}, errStaticMountTraversal},
 		{"empty dir", Static{Prefix: "hamnir://", Paths: map[string]string{"avatars": ""}}, errEmptyStaticDir},
-		{"missing prefix", Static{Prefix: "", Paths: map[string]string{"avatars": "./a"}}, errEmptyStaticPrefix},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -25,6 +25,12 @@ func TestValidate(t *testing.T) {
 			yaml:    "personas:\n  - name: A\n    claims:\n      email: a@b.c\n",
 			wantErr: true,
 		},
+		{
+			name: "unresolved static ref",
+			yaml: "issuer: http://localhost:5556\nstatic:\n  paths: { avatars: " + t.TempDir() + " }\n" +
+				"personas:\n  - name: A\n    claims:\n      sub: a\n      picture: hamnir://avatars/missing.svg\n",
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

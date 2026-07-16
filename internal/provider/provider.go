@@ -5,7 +5,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
 
 	jose "github.com/go-jose/go-jose/v4"
 	"golang.org/x/text/language"
@@ -105,10 +104,9 @@ func NewProvider(cfg *config.Config, s *Storage) (*op.Provider, error) {
 	// a single provider per process.
 	opts := []op.Option{op.WithAllowInsecure()}
 	if cfg.BrowserURL != "" {
-		base := strings.TrimSuffix(cfg.BrowserURL, "/")
 		opts = append(opts,
-			op.WithCustomAuthEndpoint(op.NewEndpointWithURL("authorize", base+"/authorize")),
-			op.WithCustomEndSessionEndpoint(op.NewEndpointWithURL("end_session", base+"/end_session")),
+			op.WithCustomAuthEndpoint(op.NewEndpointWithURL("authorize", cfg.BrowserURL+"/authorize")),
+			op.WithCustomEndSessionEndpoint(op.NewEndpointWithURL("end_session", cfg.BrowserURL+"/end_session")),
 		)
 	}
 
