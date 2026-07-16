@@ -6,6 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/strangemattersystems/hamnir/internal/config"
+	"github.com/strangemattersystems/hamnir/internal/provider"
+	"github.com/strangemattersystems/hamnir/internal/server"
 )
 
 var version = "0.0.0-dev"
@@ -26,13 +30,21 @@ func main() {
 	keyFile := fs.String("key-file", "./.hamnir/key.pem", "signing key path")
 	_ = fs.Parse(os.Args[2:])
 
-	_ = configPath
-	_ = keyFile
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintln(w, "hamnir")
-	})
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(cfg.Clients) == 0 {
+		log.Println("⚠ permissive dev mode — accepting any client_id and redirect_uri. DEV ONLY; do not expose to untrusted networks.")
+	}
+	key, err := provider.LoadOrGenerateKey(*keyFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	h, err := server.New(cfg, key)
+	if err != nil {
+		log.Fatal(err)
+	}
 	log.Printf("hamnir listening on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	log.Fatal(http.ListenAndServe(*addr, h))
 }
