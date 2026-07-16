@@ -46,7 +46,7 @@ func waitReady(t *testing.T, addr string) {
 }
 
 func TestServe(t *testing.T) {
-	t.Run("graceful shutdown on context cancel", func(t *testing.T) {
+	t.Run("graceful shutdown", func(t *testing.T) {
 		cfg := writeValidConfig(t)
 		key := filepath.Join(t.TempDir(), "key.pem")
 		addr := freeAddr(t)
@@ -68,7 +68,7 @@ func TestServe(t *testing.T) {
 		}
 	})
 
-	t.Run("errors when addr already in use", func(t *testing.T) {
+	t.Run("addr in use", func(t *testing.T) {
 		cfg := writeValidConfig(t)
 		key := filepath.Join(t.TempDir(), "key.pem")
 

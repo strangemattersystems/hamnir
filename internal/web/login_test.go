@@ -20,7 +20,7 @@ func newTestHandler(complete func(string, string) error) *Handler {
 }
 
 func TestHandler(t *testing.T) {
-	t.Run("login renders personas", func(t *testing.T) {
+	t.Run("renders picker", func(t *testing.T) {
 		h := newTestHandler(func(_, _ string) error { return nil })
 		mux := http.NewServeMux()
 		h.Routes(mux)
@@ -32,7 +32,7 @@ func TestHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("select completes and redirects", func(t *testing.T) {
+	t.Run("select redirects", func(t *testing.T) {
 		var got string
 		h := newTestHandler(func(_, sub string) error { got = sub; return nil })
 		mux := http.NewServeMux()
@@ -54,7 +54,7 @@ func TestHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("select rejects unknown persona", func(t *testing.T) {
+	t.Run("unknown persona", func(t *testing.T) {
 		h := newTestHandler(func(_, _ string) error { return nil })
 		mux := http.NewServeMux()
 		h.Routes(mux)

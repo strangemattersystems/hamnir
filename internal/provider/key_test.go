@@ -38,7 +38,7 @@ func TestLoadOrGenerateKey(t *testing.T) {
 		}
 	})
 
-	t.Run("surfaces read errors instead of regenerating", func(t *testing.T) {
+	t.Run("read error not regenerated", func(t *testing.T) {
 		// A directory used as a key path should surface as a filesystem level
 		// read error.
 		dir := t.TempDir()

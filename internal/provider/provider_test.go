@@ -52,7 +52,7 @@ func TestProvider(t *testing.T) {
 	srv := httptest.NewServer(providerHandler(p))
 	defer srv.Close()
 
-	t.Run("serves discovery with issuer and jwks_uri", func(t *testing.T) {
+	t.Run("discovery", func(t *testing.T) {
 		resp, err := srv.Client().Get(srv.URL + "/.well-known/openid-configuration")
 		if err != nil {
 			t.Fatal(err)
@@ -73,7 +73,7 @@ func TestProvider(t *testing.T) {
 		}
 	})
 
-	t.Run("serves a non-empty jwks", func(t *testing.T) {
+	t.Run("jwks", func(t *testing.T) {
 		resp, err := srv.Client().Get(srv.URL + "/.well-known/openid-configuration")
 		if err != nil {
 			t.Fatal(err)
