@@ -105,8 +105,9 @@ main { flex: 1; padding-block: 2.5rem; }
 .card {
   display: flex;
   width: 100%;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
   padding: 0.875rem 1rem;
   text-align: left;
   font: inherit;
@@ -116,6 +117,15 @@ main { flex: 1; padding-block: 2.5rem; }
   box-shadow: inset 3px 0 0 var(--accent, transparent);
   cursor: pointer;
   transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.card-text { display: flex; min-width: 0; flex-direction: column; gap: 0.25rem; }
+.avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  object-fit: contain;
+  background: var(--hover-bg);
+  border: 1px solid var(--border);
 }
 .card:hover { border-color: var(--muted); background: var(--hover-bg); }
 .card:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }

@@ -22,6 +22,7 @@ type cardVM struct {
 	Name        string
 	Description string
 	Colour      string
+	Picture     string
 }
 
 type groupVM struct {
@@ -91,11 +92,13 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 			seen[gid] = true
 			order = append(order, gid)
 		}
+		picture, _ := p.Claims["picture"].(string)
 		cards[gid] = append(cards[gid], cardVM{
 			Sub:         sub,
 			Name:        persona.DisplayName(p),
 			Description: p.Description,
 			Colour:      colourByGroup[gid],
+			Picture:     picture,
 		})
 	}
 	vm := pageVM{AuthRequestID: authRequestID}

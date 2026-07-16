@@ -68,3 +68,30 @@ func TestHandler(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildPage_Avatar(t *testing.T) {
+	render := func(cfg *config.Config) string {
+		h := NewHandler(persona.NewSet(cfg), cfg, func(string, string) error { return nil }, "/cb")
+		var b strings.Builder
+		if err := h.tmpl.ExecuteTemplate(&b, "picker.html.tmpl", h.buildPage("abc")); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+
+	t.Run("with picture", func(t *testing.T) {
+		cfg := &config.Config{Personas: []config.Persona{{Name: "Eve", Claims: map[string]any{
+			"sub": "usr_eve", "picture": "http://h/.static/avatars/eve.svg",
+		}}}}
+		if out := render(cfg); !strings.Contains(out, `src="http://h/.static/avatars/eve.svg"`) {
+			t.Errorf("expected avatar img, got:\n%s", out)
+		}
+	})
+
+	t.Run("without picture", func(t *testing.T) {
+		cfg := &config.Config{Personas: []config.Persona{{Name: "Bob", Claims: map[string]any{"sub": "usr_bob"}}}}
+		if out := render(cfg); strings.Contains(out, "class=\"avatar\"") {
+			t.Errorf("did not expect avatar img, got:\n%s", out)
+		}
+	})
+}

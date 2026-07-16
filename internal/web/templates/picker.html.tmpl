@@ -27,8 +27,11 @@
           <input type="hidden" name="authRequestID" value="{{ $.AuthRequestID }}">
           <input type="hidden" name="sub" value="{{ .Sub }}">
           <button class="card" style="--accent: {{ .Colour }}">
-            <span class="name">{{ .Name }}</span>
-            {{ if .Description }}<span class="desc">{{ .Description }}</span>{{ end }}
+            {{ if .Picture }}<img class="avatar" src="{{ .Picture }}" alt="">{{ end }}
+            <span class="card-text">
+              <span class="name">{{ .Name }}</span>
+              {{ if .Description }}<span class="desc">{{ .Description }}</span>{{ end }}
+            </span>
           </button>
         </form>
       {{ end }}
