@@ -30,3 +30,8 @@ tasks:
     desc: Run the test suite with the race detector and coverage
     cmds:
       - go test -race -cover ./...
+
+  lint:
+    desc: Run golangci-lint 
+    cmds:
+      - go tool golangci-lint run ./...
