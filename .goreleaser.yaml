@@ -64,6 +64,3 @@ changelog:
 
 release:
   prerelease: auto
-
-gomod:
-  proxy: true

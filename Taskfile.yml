@@ -58,3 +58,8 @@ tasks:
     desc: Build a local snapshot release into dist/ (no tag, no publish)
     cmds:
       - "{{.GORELEASER}} release --snapshot --clean"
+
+  release:
+    desc: Build and publish a release (should run on a pushed tag in CI only)
+    cmds:
+      - "{{.GORELEASER}} release --clean"
