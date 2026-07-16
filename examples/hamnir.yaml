@@ -34,6 +34,7 @@ personas:
       email: homer@example.test
       email_verified: true
       name: Homer Simpson
+      catchphrase: "D'oh!"
   - name: Marge
     description: Homemaker
     group: parents
@@ -42,6 +43,7 @@ personas:
       email: marge@example.test
       email_verified: true
       name: Marge Simpson
+      catchphrase: "Hrmm"
   - name: Bart
     description: Fourth grader
     group: children
