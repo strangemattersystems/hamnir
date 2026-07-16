@@ -1,12 +1,51 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json
 
-# Minimal hamnir config — one persona, permissive dev mode (any client_id and
-# redirect_uri accepted). Add a "clients:" block for strict mode, "groups:" to
-# organise the picker, and more personas as needed. All fields: api/hamnir.schema.json
+groups:
+  - id: parents
+    label: Parents
+    colour: "#2563eb"
+  - id: children
+    label: Children
+    colour: "#16a34a"
+
 personas:
-  - name: Example User
+  - name: Homer
+    description: Nuclear safety inspector
+    group: parents
     claims:
-      sub: user-1
-      email: user@example.test
+      sub: usr_homer
+      email: homer@example.test
       email_verified: true
-      name: Example User
+      name: Homer Simpson
+  - name: Marge
+    description: Homemaker
+    group: parents
+    claims:
+      sub: usr_marge
+      email: marge@example.test
+      email_verified: true
+      name: Marge Simpson
+  - name: Bart
+    description: Fourth grader
+    group: children
+    claims:
+      sub: usr_bart
+      email: bart@example.test
+      email_verified: true
+      name: Bart Simpson
+  - name: Lisa
+    description: Second grader
+    group: children
+    claims:
+      sub: usr_lisa
+      email: lisa@example.test
+      email_verified: true
+      name: Lisa Simpson
+  - name: Maggie
+    description: Baby of the family
+    group: children
+    claims:
+      sub: usr_maggie
+      email: maggie@example.test
+      email_verified: true
+      name: Maggie Simpson
