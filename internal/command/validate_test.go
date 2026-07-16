@@ -1,4 +1,4 @@
-package main
+package command
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestRunValidate(t *testing.T) {
+func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		yaml    string
@@ -33,7 +33,7 @@ func TestRunValidate(t *testing.T) {
 				t.Fatal(err)
 			}
 			var buf bytes.Buffer
-			err := runValidate(&buf, p)
+			err := Validate(&buf, p)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}

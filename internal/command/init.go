@@ -1,7 +1,6 @@
-package main
+package command
 
 import (
-	"context"
 	_ "embed"
 	"fmt"
 	"io"
@@ -9,37 +8,20 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/urfave/cli/v3"
-
 	"github.com/strangemattersystems/hamnir/internal/provider"
 )
 
-// minimalConfig is the starter config written by `hamnir init`. It lives as a
-// real .yaml file so it validates against the schema in an editor while we
-// maintain it, rather than as an escaped Go string literal.
+// minimalConfig is the starter config written by Init. It lives as a real .yaml
+// file so it validates against the schema in an editor while we maintain it,
+// rather than as an escaped Go string literal.
 //
 //go:embed init_config.yaml
 var minimalConfig string
 
-func initCommand() *cli.Command {
-	return &cli.Command{
-		Name:  "init",
-		Usage: "scaffold a minimal config and signing key",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "config", Value: "./hamnir.yaml", Usage: "path to config file to create"},
-			&cli.StringFlag{Name: "key-file", Value: "./.hamnir/key.pem", Usage: "signing key path to create"},
-			&cli.BoolFlag{Name: "force", Usage: "overwrite existing files"},
-		},
-		Action: func(_ context.Context, cmd *cli.Command) error {
-			return runInit(os.Stdout, cmd.String("config"), cmd.String("key-file"), cmd.Bool("force"))
-		},
-	}
-}
-
-// runInit writes a minimal config and generates a fresh signing key, printing a
+// Init writes a minimal config and generates a fresh signing key, printing a
 // line per created file to w. Unless force is set, it refuses (writing nothing)
 // when either target already exists.
-func runInit(w io.Writer, configPath, keyPath string, force bool) error {
+func Init(w io.Writer, configPath, keyPath string, force bool) error {
 	if !force {
 		var existing []string
 		if _, err := os.Stat(configPath); err == nil {

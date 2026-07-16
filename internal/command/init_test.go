@@ -1,4 +1,4 @@
-package main
+package command
 
 import (
 	"bytes"
@@ -9,14 +9,14 @@ import (
 	"github.com/strangemattersystems/hamnir/internal/config"
 )
 
-func TestRunInit(t *testing.T) {
+func TestInit(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "hamnir.yaml")
 	keyPath := filepath.Join(dir, ".hamnir", "key.pem")
 
 	var buf bytes.Buffer
-	if err := runInit(&buf, cfgPath, keyPath, false); err != nil {
-		t.Fatalf("runInit: %v", err)
+	if err := Init(&buf, cfgPath, keyPath, false); err != nil {
+		t.Fatalf("Init: %v", err)
 	}
 	if _, err := os.Stat(cfgPath); err != nil {
 		t.Errorf("config not created: %v", err)
@@ -30,7 +30,7 @@ func TestRunInit(t *testing.T) {
 	}
 }
 
-func TestRunInit_refusesExisting(t *testing.T) {
+func TestInit_refusesExisting(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "hamnir.yaml")
 	keyPath := filepath.Join(dir, "key.pem")
@@ -39,19 +39,19 @@ func TestRunInit_refusesExisting(t *testing.T) {
 	}
 
 	// Without force: refuse and leave the existing file untouched.
-	if err := runInit(&bytes.Buffer{}, cfgPath, keyPath, false); err == nil {
+	if err := Init(&bytes.Buffer{}, cfgPath, keyPath, false); err == nil {
 		t.Fatal("expected error when config exists")
 	}
 	if b, _ := os.ReadFile(cfgPath); string(b) != "old" {
 		t.Errorf("existing config was modified: %q", b)
 	}
 	if _, err := os.Stat(keyPath); err == nil {
-		t.Error("key should not be created when init refuses")
+		t.Error("key should not be created when Init refuses")
 	}
 
 	// With force: overwrite.
-	if err := runInit(&bytes.Buffer{}, cfgPath, keyPath, true); err != nil {
-		t.Fatalf("runInit --force: %v", err)
+	if err := Init(&bytes.Buffer{}, cfgPath, keyPath, true); err != nil {
+		t.Fatalf("Init --force: %v", err)
 	}
 	if b, _ := os.ReadFile(cfgPath); string(b) == "old" {
 		t.Error("config not overwritten with --force")
