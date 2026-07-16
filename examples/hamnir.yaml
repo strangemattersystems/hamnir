@@ -1,6 +1,7 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json
 
-# Sample hamnir config for the Docker Compose example.
+# Sample hamnir config for the Docker Compose example. The personas mirror the
+# `hamnir init` starter config.
 #
 # There is deliberately no `issuer:` set — hamnir derives the issuer from each
 # request's host. That is what lets the browser (http://localhost:5556) and the
@@ -17,28 +18,51 @@ clients:
       - http://localhost:8080/callback
 
 groups:
-  - id: staff
-    label: Staff
-    colour: "#8b5cf6"
-  - id: players
-    label: Players
-    colour: "#22c55e"
+  - id: parents
+    label: Parents
+    colour: "#2563eb"
+  - id: children
+    label: Children
+    colour: "#16a34a"
 
 personas:
-  - name: Alice
-    description: Team coach
-    group: staff
+  - name: Homer
+    description: Nuclear safety inspector
+    group: parents
     claims:
-      sub: usr_alice
-      email: alice@example.test
+      sub: usr_homer
+      email: homer@example.test
       email_verified: true
-      name: Alice Anderson
-      roles: [coach]
-  - name: Bob
-    description: Midfielder
-    group: players
+      name: Homer Simpson
+  - name: Marge
+    description: Homemaker
+    group: parents
     claims:
-      sub: usr_bob
-      email: bob@example.test
-      name: Bob Brown
-      roles: [player]
+      sub: usr_marge
+      email: marge@example.test
+      email_verified: true
+      name: Marge Simpson
+  - name: Bart
+    description: Fourth grader
+    group: children
+    claims:
+      sub: usr_bart
+      email: bart@example.test
+      email_verified: true
+      name: Bart Simpson
+  - name: Lisa
+    description: Second grader
+    group: children
+    claims:
+      sub: usr_lisa
+      email: lisa@example.test
+      email_verified: true
+      name: Lisa Simpson
+  - name: Maggie
+    description: Baby of the family
+    group: children
+    claims:
+      sub: usr_maggie
+      email: maggie@example.test
+      email_verified: true
+      name: Maggie Simpson
