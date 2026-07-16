@@ -10,7 +10,13 @@ RUN go mod download && go mod verify
 
 COPY . .
 
-RUN CGO_ENABLED=0 go build -trimpath -tags netgo,osusergo -ldflags="-s -w" -o /out/hamnir ./cmd/hamnir
+ARG VERSION=0.0.0-dev
+ARG REVISION=unknown
+ARG DATE=unknown
+
+RUN CGO_ENABLED=0 go build -trimpath -tags netgo,osusergo \
+	-ldflags="-s -w -X main.version=${VERSION} -X main.revision=${REVISION} -X main.date=${DATE}" \
+	-o /out/hamnir ./cmd/hamnir
 
 # ---
 

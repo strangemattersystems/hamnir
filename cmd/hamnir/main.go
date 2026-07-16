@@ -12,13 +12,17 @@ import (
 	"github.com/strangemattersystems/hamnir/internal/server"
 )
 
-var version = "0.0.0-dev"
+var (
+	version  = "0.0.0-dev"
+	revision = "unknown"
+	date     = "unknown"
+)
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
 	if len(os.Args) >= 2 && os.Args[1] == "--version" {
-		fmt.Println("hamnir", version)
+		fmt.Printf("hamnir %s (rev %s, built %s)\n", version, revision, date)
 		return
 	}
 	if len(os.Args) < 2 || os.Args[1] != "serve" {
