@@ -1,0 +1,42 @@
+# Sample hamnir config for the Docker Compose example.
+#
+# There is deliberately no `issuer:` set — hamnir derives the issuer from each
+# request's host. That is what lets the browser (http://localhost:5556) and the
+# webapp container (http://hamnir:5556) each receive an issuer they can reach.
+# See the README for the details.
+
+# Registering the web app as a client puts hamnir in strict mode: only these exact
+# redirect URIs are accepted. Delete this block to run in permissive dev mode
+# (any client_id and redirect_uri). The app has no secret, so it is a public
+# client and authenticates with PKCE.
+clients:
+  - id: example-webapp
+    redirect_uris:
+      - http://localhost:8080/callback
+
+groups:
+  - id: staff
+    label: Staff
+    colour: "#8b5cf6"
+  - id: players
+    label: Players
+    colour: "#22c55e"
+
+personas:
+  - name: Alice
+    description: Team coach
+    group: staff
+    claims:
+      sub: usr_alice
+      email: alice@example.test
+      email_verified: true
+      name: Alice Anderson
+      roles: [coach]
+  - name: Bob
+    description: Midfielder
+    group: players
+    claims:
+      sub: usr_bob
+      email: bob@example.test
+      name: Bob Brown
+      roles: [player]
