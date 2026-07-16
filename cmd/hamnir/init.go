@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"os"
@@ -13,19 +14,12 @@ import (
 	"github.com/strangemattersystems/hamnir/internal/provider"
 )
 
-const minimalConfig = `# yaml-language-server: $schema=https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json
-
-# Minimal hamnir config — one persona, permissive dev mode (any client_id and
-# redirect_uri accepted). Add a "clients:" block for strict mode, "groups:" to
-# organise the picker, and more personas as needed. All fields: api/hamnir.schema.json
-personas:
-  - name: Example User
-    claims:
-      sub: user-1
-      email: user@example.test
-      email_verified: true
-      name: Example User
-`
+// minimalConfig is the starter config written by `hamnir init`. It lives as a
+// real .yaml file so it validates against the schema in an editor while we
+// maintain it, rather than as an escaped Go string literal.
+//
+//go:embed init_config.yaml
+var minimalConfig string
 
 func initCommand() *cli.Command {
 	return &cli.Command{
