@@ -36,10 +36,12 @@ func Init(w io.Writer, configPath, keyPath string, force bool) error {
 	}
 
 	if dir := filepath.Dir(configPath); dir != "" {
+		//nolint:gosec // G301: this holds non-secret persona config, not credentials.
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create config dir: %w", err)
 		}
 	}
+	//nolint:gosec // G306: hamnir.yaml is non-secret persona config.
 	if err := os.WriteFile(configPath, []byte(minimalConfig), 0o644); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}

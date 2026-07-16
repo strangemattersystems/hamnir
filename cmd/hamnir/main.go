@@ -21,6 +21,10 @@ var (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
 	cli.VersionPrinter = func(*cli.Command) {
@@ -77,9 +81,10 @@ func main() {
 
 	if err := root.Run(ctx, os.Args); err != nil {
 		if ec, ok := errors.AsType[cli.ExitCoder](err); ok {
-			os.Exit(ec.ExitCode())
+			return ec.ExitCode()
 		}
 		fmt.Fprintln(os.Stderr, "hamnir:", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

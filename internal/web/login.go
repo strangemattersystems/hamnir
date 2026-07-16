@@ -3,6 +3,7 @@ package web
 import (
 	"html/template"
 	"net/http"
+	"net/url"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
 	"github.com/strangemattersystems/hamnir/internal/persona"
@@ -16,12 +17,19 @@ type Handler struct {
 	tmpl        *template.Template
 }
 
-type cardVM struct{ Sub, Name, Description, Colour string }
+type cardVM struct {
+	Sub         string
+	Name        string
+	Description string
+	Colour      string
+}
+
 type groupVM struct {
 	Label    string
 	Colour   string
 	Personas []cardVM
 }
+
 type pageVM struct {
 	AuthRequestID string
 	Groups        []groupVM
@@ -59,7 +67,7 @@ func (h *Handler) postSelect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, h.callbackURL+"?id="+authRequestID, http.StatusFound)
+	http.Redirect(w, r, h.callbackURL+"?id="+url.QueryEscape(authRequestID), http.StatusFound)
 }
 
 func (h *Handler) buildPage(authRequestID string) pageVM {

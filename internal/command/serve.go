@@ -36,7 +36,11 @@ func Serve(ctx context.Context, configPath, addr, keyFile string) error {
 		return err
 	}
 
-	srv := &http.Server{Addr: addr, Handler: h}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	serveErr := make(chan error, 1)
 	go func() {
