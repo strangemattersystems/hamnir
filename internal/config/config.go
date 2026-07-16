@@ -45,5 +45,8 @@ func Load(path string) (*Config, error) {
 	if err := yaml.UnmarshalWithOptions(raw, &cfg, yaml.DisallowUnknownField()); err != nil {
 		return nil, fmt.Errorf("parsing config file %q: %w", path, err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config %q: %w", path, err)
+	}
 	return &cfg, nil
 }
