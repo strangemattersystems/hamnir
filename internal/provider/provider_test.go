@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,21 @@ import (
 
 	"github.com/strangemattersystems/hamnir/internal/config"
 )
+
+func TestCryptoKey(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("deterministic for a given key", func(t *testing.T) {
+		first := cryptoKey(key)
+		second := cryptoKey(key)
+		if first != second {
+			t.Fatal("cryptoKey must be stable for the same key")
+		}
+	})
+}
 
 // providerHandler exposes the provider's http.Handler for testing. *op.Provider
 // implements http.Handler directly.

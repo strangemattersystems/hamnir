@@ -61,11 +61,24 @@ func (k *publicKey) Key() any {
 	return &k.key.PublicKey
 }
 
+// cryptoKeyLabel domain-separates the derived code-encryption key from the
+// signing use of the same RSA key. Bump the version suffix if the derivation
+// ever changes.
+const cryptoKeyLabel = "hamnir/op-code-encryption/v1"
+
 // cryptoKey derives the 32-byte symmetric key op uses to encrypt authorization
-// codes. Deriving it from the signing key keeps it stable across restarts of a
+// codes. It is derived from PRIVATE key material (the private exponent D) — never
+// the public modulus N, which is published in JWKS and so would make the key
+// public — with a domain-separation label so it is independent of the key's
+// signing use. Deriving from the signing key keeps it stable across restarts of a
 // single instance without needing extra configuration.
 func cryptoKey(key *rsa.PrivateKey) [32]byte {
-	return sha256.Sum256(key.N.Bytes())
+	h := sha256.New()
+	h.Write([]byte(cryptoKeyLabel))
+	h.Write(key.D.Bytes())
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
 }
 
 // NewProvider constructs the zitadel OpenID provider backed by the given Storage.
