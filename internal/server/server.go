@@ -19,7 +19,7 @@ import (
 // hamnir:// style static claim references.
 func New(cfg *config.Config, key *rsa.PrivateKey) (http.Handler, error) {
 	set := persona.NewSet(cfg)
-	st, err := provider.NewStorage(cfg, key)
+	st, err := provider.NewStorage(cfg, set, key)
 	if err != nil {
 		return nil, err
 	}

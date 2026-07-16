@@ -60,9 +60,10 @@ type accessTokenInfo struct {
 	expiration time.Time
 }
 
-// NewStorage builds a Storage over the given config and signing key, wiring up
-// the persona set and a fresh RefreshTokenManager.
-func NewStorage(cfg *config.Config, key *rsa.PrivateKey) (*Storage, error) {
+// NewStorage builds a Storage over the given config, persona set and signing
+// key, wiring up a fresh RefreshTokenManager. The set is shared with the login
+// picker so both consult the same persona directory.
+func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Storage, error) {
 	audience := cfg.Issuer
 	if audience == "" {
 		audience = defaultRefreshAudience
@@ -73,7 +74,7 @@ func NewStorage(cfg *config.Config, key *rsa.PrivateKey) (*Storage, error) {
 	}
 	return &Storage{
 		cfg:      cfg,
-		personas: persona.NewSet(cfg),
+		personas: set,
 		key:      key,
 		refresh:  refresh,
 		signing:  &signingKey{id: randID(), key: key},

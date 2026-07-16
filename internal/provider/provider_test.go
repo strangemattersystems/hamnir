@@ -13,6 +13,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/op"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
+	"github.com/strangemattersystems/hamnir/internal/persona"
 )
 
 func TestCryptoKey(t *testing.T) {
@@ -42,7 +43,7 @@ func TestProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := NewStorage(cfg, key)
+	st, err := NewStorage(cfg, persona.NewSet(cfg), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +131,7 @@ func TestNewProvider_BrowserURL(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			st, err := NewStorage(cfg, key)
+			st, err := NewStorage(cfg, persona.NewSet(cfg), key)
 			if err != nil {
 				t.Fatal(err)
 			}

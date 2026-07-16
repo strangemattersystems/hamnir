@@ -10,12 +10,11 @@ type Set struct {
 func NewSet(cfg *config.Config) *Set {
 	s := &Set{
 		bySub: make(map[string]config.Persona, len(cfg.Personas)),
-		all:   make([]config.Persona, 0, len(cfg.Personas)),
+		all:   cfg.Personas,
 	}
 	for _, p := range cfg.Personas {
 		sub, _ := p.Claims["sub"].(string)
 		s.bySub[sub] = p
-		s.all = append(s.all, p)
 	}
 	return s
 }
