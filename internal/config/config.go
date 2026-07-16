@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -14,6 +15,12 @@ type Config struct {
 	Groups     []Group             `yaml:"groups"`
 	Scopes     map[string][]string `yaml:"scopes"`
 	Personas   []Persona           `yaml:"personas"`
+	Static     Static              `yaml:"static"`
+}
+
+type Static struct {
+	Prefix string            `yaml:"prefix"`
+	Paths  map[string]string `yaml:"paths"`
 }
 
 type Client struct {
@@ -46,8 +53,25 @@ func Load(path string) (*Config, error) {
 	if err := yaml.UnmarshalWithOptions(raw, &cfg, yaml.DisallowUnknownField()); err != nil {
 		return nil, fmt.Errorf("parsing config file %q: %w", path, err)
 	}
+	cfg.normaliseStatic()
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config %q: %w", path, err)
 	}
 	return &cfg, nil
+}
+
+// normaliseStatic strips a single leading "/" from each static mount key (so
+// "/avatars" and "avatars" are equivalent) and defaults the substitution prefix
+// when static paths are configured.
+func (c *Config) normaliseStatic() {
+	if len(c.Static.Paths) > 0 {
+		norm := make(map[string]string, len(c.Static.Paths))
+		for k, v := range c.Static.Paths {
+			norm[strings.TrimPrefix(k, "/")] = v
+		}
+		c.Static.Paths = norm
+		if c.Static.Prefix == "" {
+			c.Static.Prefix = "hamnir://"
+		}
+	}
 }

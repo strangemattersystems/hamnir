@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strings"
 )
 
 var (
@@ -15,6 +16,10 @@ var (
 	errUnknownGroup          = errors.New("unknown group reference")
 	errBrowserURLNeedsIssuer = errors.New("browser_url requires a static issuer")
 	errInvalidURL            = errors.New("invalid url")
+	errEmptyStaticMount      = errors.New("empty static mount")
+	errStaticMountTraversal  = errors.New(".. is not allowed in a mount name")
+	errEmptyStaticDir        = errors.New("empty static directory")
+	errEmptyStaticPrefix     = errors.New("static paths set but prefix is empty")
 )
 
 var hexColour = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
@@ -57,6 +62,21 @@ func (c *Config) Validate() error {
 		}
 		if err := validateURL(c.BrowserURL); err != nil {
 			return fmt.Errorf("browser_url %q: %w", c.BrowserURL, err)
+		}
+	}
+
+	if len(c.Static.Paths) > 0 && c.Static.Prefix == "" {
+		return errEmptyStaticPrefix
+	}
+	for mount, dir := range c.Static.Paths {
+		if mount == "" {
+			return errEmptyStaticMount
+		}
+		if strings.Contains(mount, "..") {
+			return fmt.Errorf("static mount %q: %w", mount, errStaticMountTraversal)
+		}
+		if dir == "" {
+			return fmt.Errorf("static mount %q: %w", mount, errEmptyStaticDir)
 		}
 	}
 

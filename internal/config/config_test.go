@@ -80,3 +80,51 @@ personas:
 		}
 	})
 }
+
+func TestLoad_StaticDefaultsAndNormalises(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.yaml")
+	yaml := `
+static:
+  paths:
+    /avatars: ./avatars
+personas:
+  - claims: { sub: usr_alice }
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Static.Prefix != "hamnir://" {
+		t.Errorf("prefix = %q, want hamnir://", cfg.Static.Prefix)
+	}
+	if _, ok := cfg.Static.Paths["avatars"]; !ok {
+		t.Errorf("leading slash not stripped from mount key: %v", cfg.Static.Paths)
+	}
+}
+
+func TestConfig_Validate_Static(t *testing.T) {
+	tests := []struct {
+		name    string
+		static  Static
+		wantErr error
+	}{
+		{"ok", Static{Prefix: "hamnir://", Paths: map[string]string{"avatars": "./a"}}, nil},
+		{"empty mount", Static{Prefix: "hamnir://", Paths: map[string]string{"": "./a"}}, errEmptyStaticMount},
+		{"traversal mount", Static{Prefix: "hamnir://", Paths: map[string]string{"../x": "./a"}}, errStaticMountTraversal},
+		{"empty dir", Static{Prefix: "hamnir://", Paths: map[string]string{"avatars": ""}}, errEmptyStaticDir},
+		{"missing prefix", Static{Prefix: "", Paths: map[string]string{"avatars": "./a"}}, errEmptyStaticPrefix},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Static: tt.static, Personas: []Persona{{Claims: map[string]any{"sub": "s"}}}}
+			err := cfg.Validate()
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate() err = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}

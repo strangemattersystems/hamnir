@@ -33,6 +33,22 @@
       "type": "array",
       "description": "The selectable identities shown in the persona picker.",
       "items": { "$ref": "#/$defs/persona" }
+    },
+    "static": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Serve local directories of static files (e.g. profile images) under the reserved /.static/ URL root, and reference them from claims via the prefix marker.",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "description": "Claim-value marker that opts a value into static-URL substitution. Defaults to \"hamnir://\". Override if you need that literal string elsewhere."
+        },
+        "paths": {
+          "type": "object",
+          "description": "Map of mount name to local directory. Each is served under /.static/<mount>/. Reference a file as <prefix><mount>/<file>.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
     }
   },
   "$defs": {
