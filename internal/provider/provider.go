@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 
 	jose "github.com/go-jose/go-jose/v4"
 	"golang.org/x/text/language"
@@ -99,5 +100,17 @@ func NewProvider(cfg *config.Config, s *Storage) (*op.Provider, error) {
 		issuer = op.StaticIssuer(cfg.Issuer)
 	}
 
-	return op.NewProvider(opConfig, s, issuer, op.WithAllowInsecure())
+	// NOTE: op's WithCustom*Endpoint options mutate the package-global
+	// op.DefaultEndpoints in place, so this is correct only because hamnir builds
+	// a single provider per process.
+	opts := []op.Option{op.WithAllowInsecure()}
+	if cfg.BrowserURL != "" {
+		base := strings.TrimSuffix(cfg.BrowserURL, "/")
+		opts = append(opts,
+			op.WithCustomAuthEndpoint(op.NewEndpointWithURL("authorize", base+"/authorize")),
+			op.WithCustomEndSessionEndpoint(op.NewEndpointWithURL("end_session", base+"/end_session")),
+		)
+	}
+
+	return op.NewProvider(opConfig, s, issuer, opts...)
 }
