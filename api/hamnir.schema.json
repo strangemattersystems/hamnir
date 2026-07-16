@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json",
+  "title": "hamnir config",
+  "description": "Configuration for hamnir, a persona-first OIDC dev provider. Note: referential rules (persona.group must match a groups[].id, and sub must be unique across personas) are enforced by hamnir at load time, not by this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issuer": {
+      "type": "string",
+      "format": "uri",
+      "description": "OIDC issuer URL. Omit to derive the issuer per-request from the request host — this is what lets a browser (http://localhost:5556) and an in-cluster caller (http://hamnir:5556) each receive an issuer they can reach."
+    },
+    "clients": {
+      "type": "array",
+      "description": "Registered OAuth clients. Providing any client puts hamnir in strict mode: only these client_ids and their exact redirect URIs are accepted. Omit the whole block for permissive dev mode (any client_id and redirect_uri).",
+      "items": { "$ref": "#/$defs/client" }
+    },
+    "groups": {
+      "type": "array",
+      "description": "Persona groups, used to organise and colour-code the persona picker.",
+      "items": { "$ref": "#/$defs/group" }
+    },
+    "scopes": {
+      "type": "object",
+      "description": "Custom scope definitions mapping a scope name to the list of claim names it releases.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "personas": {
+      "type": "array",
+      "description": "The selectable identities shown in the persona picker.",
+      "items": { "$ref": "#/$defs/persona" }
+    }
+  },
+  "$defs": {
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Client identifier (client_id)."
+        },
+        "redirect_uris": {
+          "type": "array",
+          "description": "Exact redirect URIs permitted for this client.",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "post_logout_redirect_uris": {
+          "type": "array",
+          "description": "Exact post-logout redirect URIs permitted for this client.",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "secret": {
+          "type": "string",
+          "description": "Client secret. Omit for a public client that authenticates with PKCE."
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique group identifier, referenced by persona.group."
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable label shown in the persona picker."
+        },
+        "colour": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$",
+          "description": "Accent colour as a 3- or 6-digit hex code, e.g. \"#8b5cf6\"."
+        }
+      }
+    },
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claims"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name shown in the persona picker."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional secondary text shown under the name in the picker."
+        },
+        "group": {
+          "type": "string",
+          "description": "Group id this persona belongs to. Must match a groups[].id (enforced by hamnir at load time)."
+        },
+        "claims": {
+          "type": "object",
+          "description": "Claims released for this persona. Arbitrary claim keys are allowed; sub is required and must be unique across personas.",
+          "required": ["sub"],
+          "properties": {
+            "sub": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Stable subject identifier. Required, and unique across personas."
+            }
+          }
+        }
+      }
+    }
+  }
+}

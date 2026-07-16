@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json
+
 # Sample hamnir config for the Docker Compose example.
 #
 # There is deliberately no `issuer:` set — hamnir derives the issuer from each
