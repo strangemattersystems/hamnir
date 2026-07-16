@@ -58,7 +58,7 @@ func TestProvider(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != 200 {
+		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("discovery status %d", resp.StatusCode)
 		}
 		var doc struct {

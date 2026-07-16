@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -29,7 +30,7 @@ func TestNew(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resp.StatusCode != 200 {
+		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("discovery status %d", resp.StatusCode)
 		}
 	})
@@ -39,7 +40,7 @@ func TestNew(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resp.StatusCode != 200 {
+		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("login status %d", resp.StatusCode)
 		}
 	})

@@ -1,9 +1,11 @@
 package persona
 
 var standardScopeClaims = map[string][]string{
-	"profile": {"name", "family_name", "given_name", "middle_name", "nickname",
+	"profile": {
+		"name", "family_name", "given_name", "middle_name", "nickname",
 		"preferred_username", "profile", "picture", "website", "gender",
-		"birthdate", "zoneinfo", "locale", "updated_at"},
+		"birthdate", "zoneinfo", "locale", "updated_at",
+	},
 	"email":   {"email", "email_verified"},
 	"phone":   {"phone_number", "phone_number_verified"},
 	"address": {"address"},

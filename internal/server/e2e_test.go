@@ -336,11 +336,11 @@ func between(s, start, end string) string {
 		return ""
 	}
 	s = s[i+len(start):]
-	j := strings.Index(s, end)
-	if j < 0 {
+	before, _, ok := strings.Cut(s, end)
+	if !ok {
 		return ""
 	}
-	return s[:j]
+	return before
 }
 
 func codeFrom(resp *http.Response) string {

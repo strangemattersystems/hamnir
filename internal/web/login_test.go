@@ -24,7 +24,7 @@ func TestHandler(t *testing.T) {
 		h := newTestHandler(func(_, _ string) error { return nil })
 		mux := http.NewServeMux()
 		h.Routes(mux)
-		req := httptest.NewRequest("GET", "/login?authRequestID=abc", nil)
+		req := httptest.NewRequest(http.MethodGet, "/login?authRequestID=abc", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Alice") {
@@ -38,7 +38,7 @@ func TestHandler(t *testing.T) {
 		mux := http.NewServeMux()
 		h.Routes(mux)
 		form := url.Values{"authRequestID": {"abc"}, "sub": {"usr_alice"}}
-		req := httptest.NewRequest("POST", "/login/select", strings.NewReader(form.Encode()))
+		req := httptest.NewRequest(http.MethodPost, "/login/select", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -59,7 +59,7 @@ func TestHandler(t *testing.T) {
 		mux := http.NewServeMux()
 		h.Routes(mux)
 		form := url.Values{"authRequestID": {"abc"}, "sub": {"nobody"}}
-		req := httptest.NewRequest("POST", "/login/select", strings.NewReader(form.Encode()))
+		req := httptest.NewRequest(http.MethodPost, "/login/select", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)

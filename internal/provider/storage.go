@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -426,10 +427,8 @@ func requestInfo(req op.TokenRequest) tokenInfo {
 // refresh tokens without the relying party having to request it. op gates
 // refresh-token issuance on this scope being present in the granted set.
 func withOfflineAccess(scopes []string) []string {
-	for _, s := range scopes {
-		if s == oidc.ScopeOfflineAccess {
-			return scopes
-		}
+	if slices.Contains(scopes, oidc.ScopeOfflineAccess) {
+		return scopes
 	}
 	return append(scopes[:len(scopes):len(scopes)], oidc.ScopeOfflineAccess)
 }
