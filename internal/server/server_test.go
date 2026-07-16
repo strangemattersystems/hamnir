@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -44,4 +45,51 @@ func TestNew(t *testing.T) {
 			t.Fatalf("login status %d", resp.StatusCode)
 		}
 	})
+}
+
+func TestNew_ServesStatic(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "eve.svg"), []byte("<svg/>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Issuer:   "http://hamnir:5556",
+		Static:   config.Static{Prefix: "hamnir://", Paths: map[string]string{"avatars": dir}},
+		Personas: []config.Persona{{Claims: map[string]any{"sub": "usr_eve"}}},
+	}
+	key, err := provider.LoadOrGenerateKey(filepath.Join(t.TempDir(), "key.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(cfg, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	tests := []struct {
+		name string
+		path string
+		want int
+	}{
+		{"served", "/.static/avatars/eve.svg", http.StatusOK},
+		{"missing", "/.static/avatars/nope.svg", http.StatusNotFound},
+		{"no listing", "/.static/avatars/", http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := srv.Client().Get(srv.URL + tt.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != tt.want {
+				t.Errorf("GET %s = %d, want %d", tt.path, resp.StatusCode, tt.want)
+			}
+			if tt.want == http.StatusOK && resp.Header.Get("Content-Type") != "image/svg+xml" {
+				t.Errorf("content-type = %q, want image/svg+xml", resp.Header.Get("Content-Type"))
+			}
+		})
+	}
 }

@@ -32,5 +32,6 @@ func New(cfg *config.Config, key *rsa.PrivateKey) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.Handle("/", p)
 	web.NewHandler(set, cfg, st.AuthenticateAndComplete, provider.AuthCallbackPath).Routes(mux)
+	static.Register(mux, cfg.Static.Paths)
 	return mux, nil
 }

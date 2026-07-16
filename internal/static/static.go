@@ -3,6 +3,7 @@ package static
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,4 +90,21 @@ func resolve(value, prefix, base string, paths map[string]string) (string, error
 		return "", fmt.Errorf("%q: file not found under %q: %w", value, dir, ErrUnresolved)
 	}
 	return base + Root + mount + "/" + rest, nil
+}
+
+func Register(mux *http.ServeMux, paths map[string]string) {
+	for mount, dir := range paths {
+		p := Root + mount + "/"
+		mux.Handle(p, noDirList(http.StripPrefix(p, http.FileServer(http.Dir(dir)))))
+	}
+}
+
+func noDirList(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
