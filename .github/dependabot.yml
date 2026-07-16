@@ -7,6 +7,7 @@ updates:
     directory: /
     schedule:
       interval: daily
+    open-pull-requests-limit: 8
     commit-message:
       prefix: chore
       include: scope
@@ -15,6 +16,7 @@ updates:
     directory: /examples/webapp
     schedule:
       interval: daily
+    open-pull-requests-limit: 8
     commit-message:
       prefix: chore
       include: scope
@@ -23,6 +25,7 @@ updates:
     directory: /
     schedule:
       interval: daily
+    open-pull-requests-limit: 8
     commit-message:
       prefix: ci
       include: scope
@@ -31,6 +34,7 @@ updates:
     directory: /
     schedule:
       interval: daily
+    open-pull-requests-limit: 8
     commit-message:
       prefix: chore
       include: scope
@@ -39,6 +43,7 @@ updates:
     directory: /examples/webapp
     schedule:
       interval: daily
+    open-pull-requests-limit: 8
     commit-message:
       prefix: chore
       include: scope
