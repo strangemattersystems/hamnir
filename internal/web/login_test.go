@@ -88,10 +88,14 @@ func TestBuildPage_Avatar(t *testing.T) {
 		}
 	})
 
-	t.Run("without picture", func(t *testing.T) {
+	t.Run("without picture shows initial placeholder", func(t *testing.T) {
 		cfg := &config.Config{Personas: []config.Persona{{Name: "Bob", Claims: map[string]any{"sub": "usr_bob"}}}}
-		if out := render(cfg); strings.Contains(out, "class=\"avatar\"") {
+		out := render(cfg)
+		if strings.Contains(out, `<img class="avatar"`) {
 			t.Errorf("did not expect avatar img, got:\n%s", out)
+		}
+		if !strings.Contains(out, `class="avatar-placeholder"`) || !strings.Contains(out, ">B</span>") {
+			t.Errorf("expected initial placeholder 'B', got:\n%s", out)
 		}
 	})
 }

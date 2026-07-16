@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"unicode"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
 	"github.com/strangemattersystems/hamnir/internal/persona"
@@ -20,6 +21,7 @@ type Handler struct {
 type cardVM struct {
 	Sub         string
 	Name        string
+	Initial     string
 	Description string
 	Colour      string
 	Picture     string
@@ -93,9 +95,11 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 			order = append(order, gid)
 		}
 		picture, _ := p.Claims["picture"].(string)
+		name := persona.DisplayName(p)
 		cards[gid] = append(cards[gid], cardVM{
 			Sub:         sub,
-			Name:        persona.DisplayName(p),
+			Name:        name,
+			Initial:     initial(name),
 			Description: p.Description,
 			Colour:      colourByGroup[gid],
 			Picture:     picture,
@@ -110,4 +114,13 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 		})
 	}
 	return vm
+}
+
+// initial returns the first rune of name, upper-cased, for the avatar placeholder
+// shown when a persona has no picture claim. Falls back to "?" for an empty name.
+func initial(name string) string {
+	for _, r := range name {
+		return string(unicode.ToUpper(r))
+	}
+	return "?"
 }
