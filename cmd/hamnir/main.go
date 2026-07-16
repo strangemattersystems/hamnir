@@ -26,6 +26,7 @@ func main() {
 		Version: version,
 		Commands: []*cli.Command{
 			serveCommand(),
+			validateCommand(),
 		},
 	}
 
