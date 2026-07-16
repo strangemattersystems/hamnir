@@ -71,3 +71,23 @@ func TestConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_Validate_BrowserURL(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+		want error
+	}{
+		{"browser_url without issuer", Config{BrowserURL: "http://localhost:5556"}, errBrowserURLNeedsIssuer},
+		{"browser_url with issuer", Config{Issuer: "http://hamnir:5556", BrowserURL: "http://localhost:5556"}, nil},
+		{"invalid browser_url", Config{Issuer: "http://hamnir:5556", BrowserURL: "://nope"}, errInvalidURL},
+		{"invalid issuer", Config{Issuer: "notaurl"}, errInvalidURL},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.cfg.Validate(); !errors.Is(err, tt.want) {
+				t.Fatalf("Validate() = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}

@@ -3,15 +3,18 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 )
 
 var (
-	errEmptyGroupID  = errors.New("empty group id")
-	errInvalidColour = errors.New("invalid hex colour")
-	errMissingSub    = errors.New("missing sub claim")
-	errDuplicateSub  = errors.New("duplicate sub")
-	errUnknownGroup  = errors.New("unknown group reference")
+	errEmptyGroupID          = errors.New("empty group id")
+	errInvalidColour         = errors.New("invalid hex colour")
+	errMissingSub            = errors.New("missing sub claim")
+	errDuplicateSub          = errors.New("duplicate sub")
+	errUnknownGroup          = errors.New("unknown group reference")
+	errBrowserURLNeedsIssuer = errors.New("browser_url requires a static issuer")
+	errInvalidURL            = errors.New("invalid url")
 )
 
 var hexColour = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
@@ -41,6 +44,29 @@ func (c *Config) Validate() error {
 		if p.Group != "" && !groupIDs[p.Group] {
 			return fmt.Errorf("persona %q: group %q: %w", sub, p.Group, errUnknownGroup)
 		}
+	}
+
+	if c.Issuer != "" {
+		if err := validateURL(c.Issuer); err != nil {
+			return fmt.Errorf("issuer %q: %w", c.Issuer, err)
+		}
+	}
+	if c.BrowserURL != "" {
+		if c.Issuer == "" {
+			return errBrowserURLNeedsIssuer
+		}
+		if err := validateURL(c.BrowserURL); err != nil {
+			return fmt.Errorf("browser_url %q: %w", c.BrowserURL, err)
+		}
+	}
+
+	return nil
+}
+
+func validateURL(s string) error {
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return errInvalidURL
 	}
 	return nil
 }

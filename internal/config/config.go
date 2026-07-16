@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	Issuer   string              `yaml:"issuer"`
-	Clients  []Client            `yaml:"clients"`
-	Groups   []Group             `yaml:"groups"`
-	Scopes   map[string][]string `yaml:"scopes"`
-	Personas []Persona           `yaml:"personas"`
+	Issuer     string              `yaml:"issuer"`
+	BrowserURL string              `yaml:"browser_url"`
+	Clients    []Client            `yaml:"clients"`
+	Groups     []Group             `yaml:"groups"`
+	Scopes     map[string][]string `yaml:"scopes"`
+	Personas   []Persona           `yaml:"personas"`
 }
 
 type Client struct {
