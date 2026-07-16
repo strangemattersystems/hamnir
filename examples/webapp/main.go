@@ -223,32 +223,144 @@ func clearCookie(w http.ResponseWriter, name string) {
 	http.SetCookie(w, &http.Cookie{Name: name, Path: "/", MaxAge: -1})
 }
 
+// The example app is styled to look deliberately unlike hamnir: warm neutrals,
+// rounded proportional type and soft shapes, versus hamnir's monospace, cold-gray
+// and flat-square look. Seeing two distinct identities helps a user tell their own
+// relying party apart from the identity provider. Both pages are self-contained
+// (tokens inlined, no external fonts) and follow the OS light/dark preference.
 const homePage = `<!doctype html>
-<title>hamnir example app</title>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Example Application</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; }
-  a.btn { display: inline-block; padding: .6rem 1rem; background: #8b5cf6; color: #fff;
-          border-radius: .5rem; text-decoration: none; font-weight: 600; }
+  :root {
+    --ground: #fbfaf7; --ink: #1c1b1a; --muted: #6f6b64; --accent: #0f9d8f;
+    --accent-strong: #0c8579; --accent-ink: #ffffff;
+    --shadow: 0 1px 2px rgba(28,27,26,.05), 0 12px 32px -12px rgba(28,27,26,.18);
+    --font-display: ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+    --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #17191a; --ink: #f2efe8; --muted: #9a968d; --accent: #2dd4bf;
+      --accent-strong: #5fe6d4; --accent-ink: #0c2b27;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 16px 40px -16px rgba(0,0,0,.6);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink);
+    font-family: var(--font-body); display: flex; align-items: center;
+    justify-content: center; padding: 2rem 1.25rem; }
+  .hero { display: flex; flex-direction: column; align-items: center; text-align: center;
+    gap: 1.1rem; }
+  .hero h1 { font-family: var(--font-display); font-weight: 700;
+    font-size: clamp(2rem, 5vw, 2.9rem); letter-spacing: -.02em; margin: 0;
+    text-wrap: balance; }
+  .hero p { max-width: 34rem; margin: 0; color: var(--muted); font-size: 1.06rem;
+    line-height: 1.6; }
+  .btn { display: inline-flex; align-items: center; gap: .55rem; margin-top: .6rem;
+    padding: .8rem 1.4rem; background: var(--accent); color: var(--accent-ink);
+    border-radius: 12px; text-decoration: none; font-family: var(--font-display);
+    font-weight: 600; font-size: 1.02rem; box-shadow: var(--shadow);
+    transition: transform .12s ease, background .12s ease; }
+  .btn:hover { transform: translateY(-1px); background: var(--accent-strong); }
+  .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .foot { margin-top: 1.5rem; font-size: .82rem; color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) {
+    .btn { transition: none; } .btn:hover { transform: none; }
+  }
 </style>
-<h1>hamnir example app</h1>
-<p>This tiny relying party logs in via hamnir. Click below, pick a persona, and
-   see the claims your app receives from the verified ID token.</p>
-<p><a class="btn" href="/login">Log in with hamnir</a></p>
+</head>
+<body>
+  <main class="hero">
+    <h1>Example Application</h1>
+    <p>A tiny demo app that signs you in with hamnir, then shows the identity claims
+       it receives — from the verified ID token and the userinfo endpoint.</p>
+    <a class="btn" href="/login">Log in with hamnir &rarr;</a>
+    <div class="foot">Dev-only relying party · powered by hamnir</div>
+  </main>
+</body>
+</html>
 `
 
 const claimsPage = `<!doctype html>
-<title>Signed in — hamnir example</title>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signed in — Example Application</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; }
-  pre { background: #f4f4f5; padding: 1rem; border-radius: .5rem; overflow: auto; }
+  :root {
+    --ground: #fbfaf7; --surface: #ffffff; --ink: #1c1b1a; --muted: #6f6b64;
+    --border: #ece9e2; --accent: #0f9d8f; --accent-strong: #0c8579;
+    --code-bg: #f6f4ef;
+    --shadow: 0 1px 2px rgba(28,27,26,.05), 0 12px 32px -12px rgba(28,27,26,.18);
+    --font-display: ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+    --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #17191a; --surface: #1f2223; --ink: #f2efe8; --muted: #9a968d;
+      --border: #2c2f30; --accent: #2dd4bf; --accent-strong: #5fe6d4;
+      --code-bg: #14201f;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 16px 40px -16px rgba(0,0,0,.6);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--font-body); }
+  .wrap { max-width: 44rem; margin: 0 auto; padding: 3rem 1.25rem 3.5rem; }
+  .badge { display: inline-flex; align-items: center; gap: .45rem; padding: .3rem .7rem;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-strong); border-radius: 999px; font-size: .78rem;
+    font-weight: 600; }
+  .wrap h2 { font-family: var(--font-display); font-weight: 700; font-size: 1.8rem;
+    letter-spacing: -.015em; margin: .8rem 0 .3rem; }
+  .who { color: var(--muted); margin: 0 0 2rem; font-size: 1.02rem; }
+  .who strong { color: var(--ink); }
+  .panel { background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1.1rem 1.2rem; margin-bottom: 1.1rem;
+    box-shadow: var(--shadow); }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between;
+    gap: 1rem; margin-bottom: .7rem; }
+  .panel-head h3 { font-family: var(--font-display); font-weight: 600;
+    font-size: 1.02rem; margin: 0; }
+  .panel-head span { font-size: .82rem; color: var(--muted); }
+  pre { margin: 0; background: var(--code-bg); border-radius: 10px; padding: .9rem 1rem;
+    overflow-x: auto; font-family: ui-monospace, "SF Mono", monospace;
+    font-size: .84rem; line-height: 1.5; color: var(--ink); }
+  .topbar { display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; margin-bottom: .2rem; }
+  .again { color: var(--accent-strong); font-weight: 600; text-decoration: none;
+    white-space: nowrap; }
+  .again:hover { text-decoration: underline; }
 </style>
-<h1>Signed in &#10003;</h1>
-<p>You are <strong>{{if .Name}}{{.Name}}{{else}}{{.Subject}}{{end}}</strong>{{if .Email}} &lt;{{.Email}}&gt;{{end}}.</p>
-<h2>Claims from the verified ID token</h2>
-<p>Verified locally against hamnir's JWKS — no extra network call.</p>
-<pre>{{.IDTokenClaims}}</pre>
-<h2>Claims from the userinfo endpoint</h2>
-<p>Fetched server-to-server with the access token.</p>
-<pre>{{.UserinfoClaims}}</pre>
-<p><a href="/login">Log in again</a></p>
+</head>
+<body>
+  <main class="wrap">
+    <div class="topbar">
+      <span class="badge">&#10003; Signed in</span>
+      <a class="again" href="/login">Log in again &rarr;</a>
+    </div>
+    <h2>You&rsquo;re signed in</h2>
+    <p class="who">You are <strong>{{if .Name}}{{.Name}}{{else}}{{.Subject}}{{end}}</strong>{{if .Email}} &lt;{{.Email}}&gt;{{end}}.</p>
+    <div class="panel">
+      <div class="panel-head">
+        <h3>ID token claims</h3>
+        <span>Verified locally against hamnir's JWKS</span>
+      </div>
+      <pre>{{.IDTokenClaims}}</pre>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Userinfo claims</h3>
+        <span>Fetched server-to-server with the access token</span>
+      </div>
+      <pre>{{.UserinfoClaims}}</pre>
+    </div>
+  </main>
+</body>
+</html>
 `
