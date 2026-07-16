@@ -22,7 +22,7 @@ func LoadOrGenerateKey(path string) (*rsa.PrivateKey, error) {
 	case !errors.Is(err, fs.ErrNotExist):
 		return nil, err
 	}
-	return generateKeyFile(path)
+	return GenerateKey(path)
 }
 
 func loadKey(path string) (*rsa.PrivateKey, error) {
@@ -45,7 +45,7 @@ func loadKey(path string) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
-func generateKeyFile(path string) (*rsa.PrivateKey, error) {
+func GenerateKey(path string) (*rsa.PrivateKey, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err

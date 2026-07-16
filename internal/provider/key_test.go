@@ -51,3 +51,32 @@ func TestLoadOrGenerateKey(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerateKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sub", "key.pem")
+
+	key, err := GenerateKey(path)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	if key == nil {
+		t.Fatal("nil key")
+	}
+
+	loaded, err := LoadOrGenerateKey(path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if loaded.N.Cmp(key.N) != 0 {
+		t.Error("reloaded key differs from generated")
+	}
+
+	// A second call overwrites with a fresh key.
+	key2, err := GenerateKey(path)
+	if err != nil {
+		t.Fatalf("GenerateKey overwrite: %v", err)
+	}
+	if key2.N.Cmp(key.N) == 0 {
+		t.Error("expected a fresh key on overwrite")
+	}
+}
