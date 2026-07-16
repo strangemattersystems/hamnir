@@ -67,3 +67,7 @@ changelog:
 
 release:
   prerelease: auto
+
+# Requires syft on PATH (installed in CI).
+sboms:
+  - artifacts: archive
