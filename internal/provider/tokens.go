@@ -10,7 +10,12 @@ import (
 	"github.com/go-jose/go-jose/v4/jwt"
 )
 
-var errRevokedSession = errors.New("refresh session revoked")
+var (
+	errRevokedSession = errors.New("refresh session revoked")
+	errMissingSID     = errors.New("refresh token missing session id")
+)
+
+const defaultRefreshAudience = "hamnir"
 
 type RefreshClaims struct {
 	Sub      string
@@ -26,15 +31,16 @@ type refreshTokenClaims struct {
 }
 
 type RefreshTokenManager struct {
-	signer jose.Signer
-	pub    *rsa.PublicKey
-	ttl    time.Duration
+	signer   jose.Signer
+	pub      *rsa.PublicKey
+	ttl      time.Duration
+	audience string
 
 	mu      sync.RWMutex
 	revoked map[string]bool
 }
 
-func NewRefreshTokenManager(key *rsa.PrivateKey, ttl time.Duration) (*RefreshTokenManager, error) {
+func NewRefreshTokenManager(key *rsa.PrivateKey, ttl time.Duration, audience string) (*RefreshTokenManager, error) {
 	signer, err := jose.NewSigner(
 		jose.SigningKey{Algorithm: jose.RS256, Key: key},
 		(&jose.SignerOptions{}).WithType("JWT"),
@@ -43,17 +49,23 @@ func NewRefreshTokenManager(key *rsa.PrivateKey, ttl time.Duration) (*RefreshTok
 		return nil, err
 	}
 	return &RefreshTokenManager{
-		signer:  signer,
-		pub:     &key.PublicKey,
-		ttl:     ttl,
-		revoked: map[string]bool{},
+		signer:   signer,
+		pub:      &key.PublicKey,
+		ttl:      ttl,
+		audience: audience,
+		revoked:  map[string]bool{},
 	}, nil
 }
 
 func (m *RefreshTokenManager) Issue(rc RefreshClaims) (string, error) {
+	if rc.SID == "" {
+		return "", errMissingSID
+	}
 	now := time.Now()
 	registered := jwt.Claims{
+		Issuer:    m.audience,
 		Subject:   rc.Sub,
+		Audience:  jwt.Audience{m.audience},
 		IssuedAt:  jwt.NewNumericDate(now),
 		Expiry:    jwt.NewNumericDate(now.Add(m.ttl)),
 		NotBefore: jwt.NewNumericDate(now),
@@ -72,8 +84,15 @@ func (m *RefreshTokenManager) Parse(token string) (RefreshClaims, error) {
 	if err := parsed.Claims(m.pub, &registered, &private); err != nil {
 		return RefreshClaims{}, err
 	}
-	if err := registered.Validate(jwt.Expected{Time: time.Now()}); err != nil {
+	if err := registered.Validate(jwt.Expected{
+		Issuer:      m.audience,
+		AnyAudience: jwt.Audience{m.audience},
+		Time:        time.Now(),
+	}); err != nil {
 		return RefreshClaims{}, err
+	}
+	if private.SID == "" {
+		return RefreshClaims{}, errMissingSID
 	}
 	if m.isRevoked(private.SID) {
 		return RefreshClaims{}, errRevokedSession

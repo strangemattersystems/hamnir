@@ -62,7 +62,11 @@ type accessTokenInfo struct {
 // NewStorage builds a Storage over the given config and signing key, wiring up
 // the persona set and a fresh RefreshTokenManager.
 func NewStorage(cfg *config.Config, key *rsa.PrivateKey) (*Storage, error) {
-	refresh, err := NewRefreshTokenManager(key, refreshTokenTTL)
+	audience := cfg.Issuer
+	if audience == "" {
+		audience = defaultRefreshAudience
+	}
+	refresh, err := NewRefreshTokenManager(key, refreshTokenTTL, audience)
 	if err != nil {
 		return nil, err
 	}

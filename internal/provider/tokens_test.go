@@ -6,6 +6,9 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	jose "github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 )
 
 func TestRefreshTokenManager(t *testing.T) {
@@ -13,7 +16,7 @@ func TestRefreshTokenManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := NewRefreshTokenManager(key, time.Hour)
+	m, err := NewRefreshTokenManager(key, time.Hour, "hamnir")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +36,7 @@ func TestRefreshTokenManager(t *testing.T) {
 	})
 
 	t.Run("rejects expired", func(t *testing.T) {
-		expired, err := NewRefreshTokenManager(key, -time.Hour)
+		expired, err := NewRefreshTokenManager(key, -time.Hour, "hamnir")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,7 +54,7 @@ func TestRefreshTokenManager(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		otherM, err := NewRefreshTokenManager(other, time.Hour)
+		otherM, err := NewRefreshTokenManager(other, time.Hour, "hamnir")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -72,6 +75,39 @@ func TestRefreshTokenManager(t *testing.T) {
 		m.Revoke("sid-revoked")
 		if _, err := m.Parse(tok); !errors.Is(err, errRevokedSession) {
 			t.Fatalf("want errRevokedSession, got %v", err)
+		}
+	})
+
+	t.Run("refuses to issue without a session id", func(t *testing.T) {
+		if _, err := m.Issue(RefreshClaims{Sub: "s"}); !errors.Is(err, errMissingSID) {
+			t.Fatalf("want errMissingSID, got %v", err)
+		}
+	})
+
+	t.Run("rejects a token audienced to a client", func(t *testing.T) {
+		// Simulate an op-issued access/id token: signed with the SAME key, but
+		// audienced to a client rather than to hamnir. It must not be spendable
+		// as a refresh token, or session revocation could be bypassed.
+		signer, err := jose.NewSigner(
+			jose.SigningKey{Algorithm: jose.RS256, Key: key},
+			(&jose.SignerOptions{}).WithType("JWT"),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now()
+		impostor, err := jwt.Signed(signer).Claims(jwt.Claims{
+			Issuer:   "hamnir",
+			Subject:  "usr_alice",
+			Audience: jwt.Audience{"rinmah"}, // a client, not hamnir
+			IssuedAt: jwt.NewNumericDate(now),
+			Expiry:   jwt.NewNumericDate(now.Add(time.Hour)),
+		}).Claims(refreshTokenClaims{SID: "sid1"}).Serialize()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := m.Parse(impostor); !errors.Is(err, jwt.ErrInvalidAudience) {
+			t.Fatalf("want ErrInvalidAudience, got %v", err)
 		}
 	})
 }
