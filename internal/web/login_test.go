@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -67,6 +68,35 @@ func TestHandler(t *testing.T) {
 			t.Fatalf("expected 400 for unknown persona, got %d", rec.Code)
 		}
 	})
+}
+
+func TestBuildPage_GroupOrder(t *testing.T) {
+	groups := []config.Group{{ID: "admins", Label: "Admins"}, {ID: "customers", Label: "Customers"}}
+	p := func(name, group string) config.Persona {
+		return config.Persona{Name: name, Group: group, Claims: map[string]any{"sub": "usr_" + name}}
+	}
+	tests := []struct {
+		name     string
+		personas []config.Persona
+		want     []string
+	}{
+		{"config order wins", []config.Persona{p("cara", "customers"), p("ada", "admins")}, []string{"Admins", "Customers"}},
+		{"ungrouped appended last", []config.Persona{p("solo", ""), p("ada", "admins")}, []string{"Admins", ""}},
+		{"personaless group omitted", []config.Persona{p("cara", "customers")}, []string{"Customers"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{Groups: groups, Personas: tt.personas}
+			h := NewHandler(persona.NewSet(cfg), cfg, func(string, string) error { return nil }, "/cb")
+			var got []string
+			for _, g := range h.buildPage("x").Groups {
+				got = append(got, g.Label)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("group labels = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestBuildPage_Avatar(t *testing.T) {

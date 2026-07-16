@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -73,27 +74,23 @@ func (h *Handler) postSelect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, h.callbackURL+"?id="+url.QueryEscape(authRequestID), http.StatusFound)
 }
 
+// buildPage groups the personas into picker sections: configured groups in
+// their config order (omitting any without personas), then groups the config
+// does not declare — in practice the ungrouped "" — in first-appearance order.
 func (h *Handler) buildPage(authRequestID string) pageVM {
-	colourByGroup := map[string]string{}
-	labelByGroup := map[string]string{}
-	order := []string{}
-	seen := map[string]bool{}
+	byID := make(map[string]config.Group, len(h.cfg.Groups))
 	for _, g := range h.cfg.Groups {
-		label := g.Label
-		if label == "" {
-			label = g.ID
-		}
-		colourByGroup[g.ID] = g.Colour
-		labelByGroup[g.ID] = label
+		byID[g.ID] = g
 	}
+
 	cards := map[string][]cardVM{}
+	var extras []string
 	for _, p := range h.set.All() {
-		sub, _ := p.Claims["sub"].(string)
 		gid := p.Group
-		if !seen[gid] {
-			seen[gid] = true
-			order = append(order, gid)
+		if _, declared := byID[gid]; !declared && len(cards[gid]) == 0 {
+			extras = append(extras, gid)
 		}
+		sub, _ := p.Claims["sub"].(string)
 		picture, _ := p.Claims["picture"].(string)
 		name := persona.DisplayName(p)
 		cards[gid] = append(cards[gid], cardVM{
@@ -101,17 +98,23 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 			Name:        name,
 			Initial:     initial(name),
 			Description: p.Description,
-			Colour:      colourByGroup[gid],
+			Colour:      byID[gid].Colour,
 			Picture:     picture,
 		})
 	}
+
 	vm := pageVM{AuthRequestID: authRequestID}
-	for _, gid := range order {
-		vm.Groups = append(vm.Groups, groupVM{
-			Label:    labelByGroup[gid],
-			Colour:   colourByGroup[gid],
-			Personas: cards[gid],
-		})
+	for _, g := range h.cfg.Groups {
+		if len(cards[g.ID]) > 0 {
+			vm.Groups = append(vm.Groups, groupVM{
+				Label:    cmp.Or(g.Label, g.ID),
+				Colour:   g.Colour,
+				Personas: cards[g.ID],
+			})
+		}
+	}
+	for _, gid := range extras {
+		vm.Groups = append(vm.Groups, groupVM{Personas: cards[gid]})
 	}
 	return vm
 }
