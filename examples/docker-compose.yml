@@ -6,6 +6,7 @@ services:
     command: ["serve", "--addr", "0.0.0.0:5556", "--config", "/etc/hamnir/hamnir.yaml"]
     volumes:
       - ./hamnir.yaml:/etc/hamnir/hamnir.yaml:ro
+      - ./avatars:/etc/hamnir/avatars:ro
     ports:
       - "5556:5556"
 

@@ -6,6 +6,14 @@
 issuer: http://hamnir:5556
 browser_url: http://localhost:5556
 
+# Serve the persona avatar images from a local directory (bind-mounted into the
+# container at this path) and reference them from each persona's picture claim.
+# hamnir rewrites hamnir://avatars/<file> to an absolute URL under browser_url at
+# startup, so the relying party receives a normal, browser-loadable picture URL.
+static:
+  paths:
+    avatars: /etc/hamnir/avatars
+
 # Registering the web app as a client puts hamnir in strict mode: only these exact
 # redirect URIs are accepted. Delete this block to run in permissive dev mode
 # (any client_id and redirect_uri). The app has no secret, so it is a public
@@ -33,6 +41,7 @@ personas:
       email_verified: true
       name: Marcus Reed
       department: Engineering
+      picture: hamnir://avatars/marcus.svg
   - name: Priya
     description: Product designer
     group: team
@@ -42,6 +51,7 @@ personas:
       email_verified: true
       name: Priya Anand
       department: Design
+      picture: hamnir://avatars/priya.svg
   - name: Theo
     description: Support lead
     group: team
@@ -51,6 +61,7 @@ personas:
       email_verified: true
       name: Theo Novak
       department: Support
+      picture: hamnir://avatars/theo.svg
   - name: Elena
     description: Engineering manager
     group: team
@@ -60,6 +71,7 @@ personas:
       email_verified: true
       name: Elena Marsh
       department: Engineering
+      picture: hamnir://avatars/elena.svg
   - name: Robin
     description: New signup
     group: customers
@@ -69,6 +81,7 @@ personas:
       email_verified: true
       name: Robin Cole
       plan: free
+      picture: hamnir://avatars/robin.svg
   - name: Ivy
     description: Power user
     group: customers
@@ -78,6 +91,7 @@ personas:
       email_verified: true
       name: Ivy Tran
       plan: pro
+      picture: hamnir://avatars/ivy.svg
   - name: Maya
     description: Trial user
     group: customers
@@ -87,6 +101,7 @@ personas:
       email_verified: true
       name: Maya Okoye
       plan: trial
+      picture: hamnir://avatars/maya.svg
   - name: George
     description: Org administrator
     group: customers
@@ -96,3 +111,4 @@ personas:
       email_verified: true
       name: George Ellis
       plan: enterprise
+      picture: hamnir://avatars/george.svg
