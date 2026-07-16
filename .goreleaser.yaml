@@ -47,11 +47,6 @@ snapshot:
 changelog:
   sort: ""
   abbrev: -1
-  filters:
-    exclude:
-      - "^test:"
-      - "^chore:"
-      - "^ci:"
   groups:
     - title: Features
       regexp: '^.*?feat(\(.+\))??!?:.+$'
