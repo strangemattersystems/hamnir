@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -15,6 +15,8 @@ import (
 var version = "0.0.0-dev"
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
 	if len(os.Args) >= 2 && os.Args[1] == "--version" {
 		fmt.Println("hamnir", version)
 		return
@@ -32,19 +34,25 @@ func main() {
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("load config", "err", err)
+		os.Exit(1)
 	}
 	if len(cfg.Clients) == 0 {
-		log.Println("⚠ permissive dev mode — accepting any client_id and redirect_uri. DEV ONLY; do not expose to untrusted networks.")
+		slog.Warn("permissive dev mode — accepting any client_id and redirect_uri; DEV ONLY, do not expose to untrusted networks")
 	}
 	key, err := provider.LoadOrGenerateKey(*keyFile)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("load signing key", "err", err)
+		os.Exit(1)
 	}
 	h, err := server.New(cfg, key)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("build server", "err", err)
+		os.Exit(1)
 	}
-	log.Printf("hamnir listening on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, h))
+	slog.Info("listening", "addr", *addr)
+	if err := http.ListenAndServe(*addr, h); err != nil {
+		slog.Error("server stopped", "err", err)
+		os.Exit(1)
+	}
 }

@@ -14,7 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,6 +25,8 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
 	var (
 		internalURL = env("HAMNIR_INTERNAL_URL", "http://hamnir:5556")
 		publicURL   = env("HAMNIR_PUBLIC_URL", "http://localhost:5556")
@@ -35,7 +37,8 @@ func main() {
 
 	a, err := discoverAndConfigure(context.Background(), internalURL, publicURL, clientID, redirectURI)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("configure", "err", err)
+		os.Exit(1)
 	}
 
 	mux := http.NewServeMux()
@@ -43,8 +46,11 @@ func main() {
 	mux.HandleFunc("/login", a.handleLogin)
 	mux.HandleFunc("/callback", a.handleCallback)
 
-	log.Printf("example webapp listening on %s — open %s", addr, redirectURIBase(redirectURI))
-	log.Fatal(http.ListenAndServe(addr, mux))
+	slog.Info("listening", "addr", addr, "open", redirectURIBase(redirectURI))
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		slog.Error("server stopped", "err", err)
+		os.Exit(1)
+	}
 }
 
 type app struct {
@@ -99,7 +105,7 @@ func discover(ctx context.Context, issuer string) (*oidc.Provider, error) {
 			return p, nil
 		}
 		lastErr = err
-		log.Printf("waiting for hamnir at %s (%v)", issuer, err)
+		slog.Info("waiting for hamnir", "issuer", issuer, "err", err)
 		time.Sleep(time.Second)
 	}
 	return nil, lastErr
