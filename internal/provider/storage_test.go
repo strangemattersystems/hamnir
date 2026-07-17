@@ -319,6 +319,93 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 	})
 }
 
+// TestStorage_Revocation pins RFC 7009 semantics: only the client a token was
+// issued to may revoke it, and any member of a rotation family — including a
+// superseded token — identifies the session to kill.
+func TestStorage_Revocation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("cross-client refresh revocation refused", func(t *testing.T) {
+		st := newTestStorage(t)
+		sid := login(t, st, "app-a")
+		rt, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sid})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := st.GetRefreshTokenInfo(ctx, "app-b", rt); err == nil {
+			t.Fatal("another client must not resolve the token for revocation")
+		}
+		if oidcErr := st.RevokeToken(ctx, rt, "usr_alice", "app-b"); oidcErr == nil {
+			t.Fatal("another client must not revoke the token")
+		}
+		if _, err := st.refresh.Parse(rt); err != nil {
+			t.Fatalf("token must survive a foreign revocation attempt: %v", err)
+		}
+	})
+
+	t.Run("cross-client access revocation refused", func(t *testing.T) {
+		st := newTestStorage(t)
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a"})
+		if oidcErr := st.RevokeToken(ctx, jti, "usr_alice", "app-b"); oidcErr == nil {
+			t.Fatal("another client must not revoke the access token")
+		}
+		st.mu.Lock()
+		_, ok := st.accessTokens[jti]
+		st.mu.Unlock()
+		if !ok {
+			t.Fatal("access token must survive a foreign revocation attempt")
+		}
+	})
+
+	t.Run("own token revokes the session", func(t *testing.T) {
+		st := newTestStorage(t)
+		sid := login(t, st, "app-a")
+		rt, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sid})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sub, tokenID, err := st.GetRefreshTokenInfo(ctx, "app-a", rt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if oidcErr := st.RevokeToken(ctx, tokenID, sub, "app-a"); oidcErr != nil {
+			t.Fatalf("own revocation should succeed: %v", oidcErr)
+		}
+		if _, err := st.refresh.Parse(rt); !errors.Is(err, errRevokedSession) {
+			t.Fatalf("want errRevokedSession after revocation, got %v", err)
+		}
+	})
+
+	t.Run("superseded token still revokes its session", func(t *testing.T) {
+		st := newTestStorage(t)
+		sid := login(t, st, "app-a")
+		old, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sid})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc, err := st.refresh.Parse(old)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.refresh.Revoke(rc.JTI) // rotation denylists the replaced token
+
+		sub, tokenID, err := st.GetRefreshTokenInfo(ctx, "app-a", old)
+		if err != nil {
+			t.Fatalf("a superseded family member should still identify the session: %v", err)
+		}
+		if oidcErr := st.RevokeToken(ctx, tokenID, sub, "app-a"); oidcErr != nil {
+			t.Fatalf("revocation via superseded token should succeed: %v", oidcErr)
+		}
+		sibling, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sid})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.refresh.Parse(sibling); !errors.Is(err, errRevokedSession) {
+			t.Fatalf("the whole session should be revoked, got %v", err)
+		}
+	})
+}
+
 // TestStorage_DeleteAuthRequest pins the code cleanup on token exchange: the
 // exchanged request and its code both disappear.
 func TestStorage_DeleteAuthRequest(t *testing.T) {

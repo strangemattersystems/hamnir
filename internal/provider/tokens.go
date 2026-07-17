@@ -77,7 +77,26 @@ func (m *RefreshTokenManager) Issue(rc TokenClaims) (string, error) {
 	return jwt.Signed(m.signer).Claims(registered).Claims(private).Serialize()
 }
 
+// Parse verifies and decodes a refresh token, rejecting revoked sessions and
+// rotated-away (jti-denylisted) tokens. Grant flows must use this.
 func (m *RefreshTokenManager) Parse(token string) (TokenClaims, error) {
+	rc, err := m.decode(token)
+	if err != nil {
+		return TokenClaims{}, err
+	}
+	if m.isRevoked(rc.SID) {
+		return TokenClaims{}, errRevokedSession
+	}
+	if rc.JTI != "" && m.isRevoked(rc.JTI) {
+		return TokenClaims{}, errRevokedToken
+	}
+	return rc, nil
+}
+
+// decode verifies the signature, expiry, audience and structure without
+// consulting the revocation denylist. Revocation flows use it directly so a
+// superseded (rotated-away) token still identifies its session.
+func (m *RefreshTokenManager) decode(token string) (TokenClaims, error) {
 	parsed, err := jwt.ParseSigned(token, []jose.SignatureAlgorithm{jose.RS256})
 	if err != nil {
 		return TokenClaims{}, err
@@ -96,12 +115,6 @@ func (m *RefreshTokenManager) Parse(token string) (TokenClaims, error) {
 	}
 	if private.SID == "" {
 		return TokenClaims{}, errMissingSID
-	}
-	if m.isRevoked(private.SID) {
-		return TokenClaims{}, errRevokedSession
-	}
-	if registered.ID != "" && m.isRevoked(registered.ID) {
-		return TokenClaims{}, errRevokedToken
 	}
 	return TokenClaims{
 		Sub:      registered.Subject,

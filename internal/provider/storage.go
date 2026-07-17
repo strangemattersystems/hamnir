@@ -345,32 +345,54 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 }
 
 func (s *Storage) GetRefreshTokenInfo(ctx context.Context, clientID string, token string) (userID string, tokenID string, err error) {
-	rc, err := s.refresh.Parse(token)
+	// decode, not Parse: a superseded (rotated-away) token still identifies
+	// its session, so revocation works from any member of the rotation family.
+	rc, err := s.refresh.decode(token)
 	if err != nil {
+		return "", "", op.ErrInvalidRefreshToken
+	}
+	// RFC 7009 §2.1: only the client the token was issued to may revoke it.
+	if rc.ClientID != clientID {
 		return "", "", op.ErrInvalidRefreshToken
 	}
 	return rc.Sub, rc.SID, nil
 }
 
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID string, clientID string) *oidc.Error {
-	// Access token revocation: userID is set and tokenOrTokenID is the jti.
+	errWrongClient := oidc.ErrInvalidClient().WithDescription("token was not issued for this client")
+
+	// Access token revocation: tokenOrTokenID is the jti.
 	s.mu.Lock()
-	_, isAccess := s.accessTokens[tokenOrTokenID]
-	if isAccess {
+	if info, ok := s.accessTokens[tokenOrTokenID]; ok {
+		if info.ClientID != clientID {
+			s.mu.Unlock()
+			return errWrongClient
+		}
 		delete(s.accessTokens, tokenOrTokenID)
 		s.mu.Unlock()
 		return nil
 	}
 	s.mu.Unlock()
 
-	// Otherwise it is a refresh token: either the raw JWT, or the session id
-	// op resolved via GetRefreshTokenInfo. Revoke the session in both cases —
-	// RFC 7009 wants related tokens invalidated too, and rotated descendants
-	// share the sid. Revoking an id that never matches anything is harmless
-	// (the denylist prunes by TTL).
-	if rc, err := s.refresh.Parse(tokenOrTokenID); err == nil {
+	// A raw refresh JWT (decode, so superseded family members count too):
+	// revoke its whole session — rotated descendants share the sid.
+	if rc, err := s.refresh.decode(tokenOrTokenID); err == nil {
+		if rc.ClientID != clientID {
+			return errWrongClient
+		}
 		s.refresh.Revoke(rc.SID)
 		return nil
+	}
+
+	// Otherwise the session id op resolved via GetRefreshTokenInfo, which
+	// already enforced ownership; cross-check the session record when we
+	// still hold one. Revoking an id that matches nothing is harmless (the
+	// denylist prunes by TTL).
+	s.mu.Lock()
+	sess, ok := s.sessions[userID][tokenOrTokenID]
+	s.mu.Unlock()
+	if ok && sess.clientID != clientID {
+		return errWrongClient
 	}
 	s.refresh.Revoke(tokenOrTokenID)
 	return nil
