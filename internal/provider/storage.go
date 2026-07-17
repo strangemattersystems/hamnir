@@ -26,14 +26,24 @@ const (
 	// idTokenLifetime is the lifetime of issued id tokens.
 	idTokenLifetime = time.Hour
 	// authRequestTTL is how long an unexchanged /authorize flow may sit in the
-	// picker before its auth request (and code) are considered abandoned.
-	authRequestTTL = 15 * time.Minute
+	// picker before its auth request (and code) are considered abandoned. An
+	// auth request is a few hundred bytes, so this is generous on purpose: a
+	// picker tab left open across a workday must still complete, and a day of
+	// abandoned flows is still bounded memory.
+	authRequestTTL = 24 * time.Hour
 )
 
 // errNotSupported is returned by op.Storage methods for flows hamnir does not
 // implement (device authorization, token exchange, JWT-profile / client
 // assertions, client-secret credential grants).
 var errNotSupported = errors.New("not supported by hamnir")
+
+// ErrAuthRequestNotFound and ErrAuthRequestDone let the login UI distinguish
+// a stale or replayed persona selection (user error, 400) from a server fault.
+var (
+	ErrAuthRequestNotFound = errors.New("auth request not found")
+	ErrAuthRequestDone     = errors.New("auth request already completed")
+)
 
 var _ op.Storage = (*Storage)(nil)
 
@@ -105,7 +115,10 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 
 	req, ok := s.authRequests[authRequestID]
 	if !ok {
-		return fmt.Errorf("auth request %q not found", authRequestID)
+		return fmt.Errorf("auth request %q: %w", authRequestID, ErrAuthRequestNotFound)
+	}
+	if req.done {
+		return fmt.Errorf("auth request %q: %w", authRequestID, ErrAuthRequestDone)
 	}
 	sid := randID()
 	req.subject = sub
@@ -166,7 +179,17 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 	}
 	s.authRequests[req.id] = req
 	s.mu.Unlock()
-	return req, nil
+	return snapshot(req), nil
+}
+
+// snapshot returns a shallow copy of the request so callers never hold the
+// live object: op reads requests outside s.mu, and handing out the stored
+// pointer would race AuthenticateAndComplete's and SaveAuthCode's writes.
+// Shallow is safe — the shared slice/pointer fields are never mutated after
+// creation.
+func snapshot(req *authRequest) *authRequest {
+	cp := *req
+	return &cp
 }
 
 func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthRequest, error) {
@@ -174,9 +197,9 @@ func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthReques
 	defer s.mu.Unlock()
 	req, ok := s.authRequests[id]
 	if !ok {
-		return nil, fmt.Errorf("auth request %q not found", id)
+		return nil, fmt.Errorf("auth request %q: %w", id, ErrAuthRequestNotFound)
 	}
-	return req, nil
+	return snapshot(req), nil
 }
 
 func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRequest, error) {
@@ -190,7 +213,7 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 	if !ok {
 		return nil, errors.New("authorization code invalid or expired")
 	}
-	return req, nil
+	return snapshot(req), nil
 }
 
 func (s *Storage) SaveAuthCode(ctx context.Context, id string, code string) error {
@@ -198,7 +221,13 @@ func (s *Storage) SaveAuthCode(ctx context.Context, id string, code string) erro
 	defer s.mu.Unlock()
 	req, ok := s.authRequests[id]
 	if !ok {
-		return fmt.Errorf("auth request %q not found", id)
+		return fmt.Errorf("auth request %q: %w", id, ErrAuthRequestNotFound)
+	}
+	// A callback reload makes op issue a fresh code for the same request; the
+	// superseded one must stop resolving (codes are single-use) and must not
+	// linger in the map.
+	if req.code != "" {
+		delete(s.codes, req.code)
 	}
 	req.code = code
 	s.codes[code] = id

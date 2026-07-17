@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"testing"
 	"time"
 
@@ -230,6 +231,90 @@ func TestStorage_Sessions(t *testing.T) {
 		}
 		if _, err := st.refresh.Parse(rtB); err == nil {
 			t.Fatal("app-b's refresh token should be revoked")
+		}
+	})
+}
+
+// TestStorage_AuthRequestLifecycle pins the auth-request state machine:
+// selection completes a request exactly once, lookups hand op immutable
+// snapshots, superseded codes die with their successor, and an idle picker
+// is not evicted from under the user.
+func TestStorage_AuthRequestLifecycle(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("replayed selection rejected", func(t *testing.T) {
+		st := newTestStorage(t)
+		req, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AuthenticateAndComplete(req.GetID(), "usr_alice"); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AuthenticateAndComplete(req.GetID(), "usr_alice"); !errors.Is(err, ErrAuthRequestDone) {
+			t.Fatalf("replay err = %v, want ErrAuthRequestDone", err)
+		}
+	})
+
+	t.Run("lookups return snapshots", func(t *testing.T) {
+		st := newTestStorage(t)
+		created, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, err := st.AuthRequestByID(ctx, created.GetID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AuthenticateAndComplete(created.GetID(), "usr_alice"); err != nil {
+			t.Fatal(err)
+		}
+		if before.Done() {
+			t.Fatal("a previously returned request must not observe later writes")
+		}
+	})
+
+	t.Run("superseded code dies with its successor", func(t *testing.T) {
+		st := newTestStorage(t)
+		req, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SaveAuthCode(ctx, req.GetID(), "code-1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SaveAuthCode(ctx, req.GetID(), "code-2"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AuthRequestByCode(ctx, "code-1"); err == nil {
+			t.Fatal("superseded code must not be exchangeable")
+		}
+		if _, err := st.AuthRequestByCode(ctx, "code-2"); err != nil {
+			t.Fatalf("latest code should resolve: %v", err)
+		}
+		st.mu.Lock()
+		n := len(st.codes)
+		st.mu.Unlock()
+		if n != 1 {
+			t.Fatalf("superseded code should be removed from the map; have %d entries", n)
+		}
+	})
+
+	t.Run("idle picker outlives a meeting", func(t *testing.T) {
+		st := newTestStorage(t)
+		idle, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.mu.Lock()
+		st.authRequests[idle.GetID()].createdAt = time.Now().Add(-time.Hour)
+		st.mu.Unlock()
+
+		if _, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AuthRequestByID(ctx, idle.GetID()); err != nil {
+			t.Fatal("an hour-old picker must still complete; only abandoned flows may be evicted")
 		}
 	})
 }

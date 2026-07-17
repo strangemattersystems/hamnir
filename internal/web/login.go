@@ -2,6 +2,7 @@ package web
 
 import (
 	"cmp"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -69,6 +70,10 @@ func (h *Handler) postSelect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.complete(authRequestID, sub); err != nil {
+		if errors.Is(err, provider.ErrAuthRequestNotFound) || errors.Is(err, provider.ErrAuthRequestDone) {
+			http.Error(w, "This login has expired or was already completed — return to your app and sign in again.", http.StatusBadRequest)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
