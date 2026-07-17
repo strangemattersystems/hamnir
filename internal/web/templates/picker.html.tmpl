@@ -19,14 +19,14 @@
 
   <main class="wrap">
     {{ range .Groups }}
-    <section class="group">
+    <section class="group" style="--accent: {{ .Colour }}">
       <h2 class="group-label"><span class="dot" style="background: {{ .Colour }}"></span>{{ .Label }}</h2>
       <div class="grid">
       {{ range .Personas }}
         <form method="post" action="/login/select">
           <input type="hidden" name="authRequestID" value="{{ $.AuthRequestID }}">
           <input type="hidden" name="sub" value="{{ .Sub }}">
-          <button class="card" style="--accent: {{ .Colour }}">
+          <button class="card">
             {{ if .Picture }}<img class="avatar" src="{{ .Picture }}" alt="">{{ else }}<span class="avatar-placeholder" aria-hidden="true">{{ .Initial }}</span>{{ end }}
             <span class="card-text">
               <span class="name">{{ .Name }}</span>

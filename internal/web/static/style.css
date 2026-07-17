@@ -8,11 +8,9 @@
   --gray-50: #fafafa;
   --gray-100: #f5f5f5;
   --gray-200: #e5e5e5;
-  --gray-300: #d4d4d4;
   --gray-400: #a3a3a3;
   --gray-500: #737373;
   --gray-600: #525252;
-  --gray-700: #404040;
   --gray-800: #262626;
   --gray-900: #171717;
   --gray-950: #0a0a0a;
@@ -20,7 +18,6 @@
   /* Semantic tokens (light). */
   --bg: #ffffff;
   --fg: var(--gray-900);
-  --section-fg: var(--gray-800);
   --body-fg: var(--gray-600);
   --muted: var(--gray-500);
   --faint: var(--gray-400);
@@ -35,7 +32,6 @@
   :root {
     --bg: var(--gray-950);
     --fg: var(--gray-100);
-    --section-fg: var(--gray-200);
     --body-fg: var(--gray-400);
     --muted: var(--gray-500);
     --faint: var(--gray-600);

@@ -44,8 +44,8 @@ func TestRefreshTokenManager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
-		if _, err := m.Parse(tok); err == nil {
-			t.Fatal("expected expired token to be rejected")
+		if _, err := m.Parse(tok); !errors.Is(err, jwt.ErrExpired) {
+			t.Fatalf("want jwt.ErrExpired, got %v", err)
 		}
 	})
 
@@ -62,8 +62,8 @@ func TestRefreshTokenManager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
-		if _, err := m.Parse(tok); err == nil {
-			t.Fatal("expected verification with the wrong key to fail")
+		if _, err := m.Parse(tok); !errors.Is(err, jose.ErrCryptoFailure) {
+			t.Fatalf("want jose.ErrCryptoFailure, got %v", err)
 		}
 	})
 

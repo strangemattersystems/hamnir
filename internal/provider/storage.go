@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -53,7 +54,6 @@ var _ op.Storage = (*Storage)(nil)
 type Storage struct {
 	cfg      *config.Config
 	personas *persona.Set
-	key      *rsa.PrivateKey
 	refresh  *RefreshTokenManager
 	signing  *signingKey
 
@@ -94,7 +94,6 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 	return &Storage{
 		cfg:      cfg,
 		personas: set,
-		key:      key,
 		refresh:  refresh,
 		signing:  &signingKey{id: randID(), key: key},
 
@@ -130,11 +129,9 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 	// every rotation, so expiry here means no live token can carry the sid.
 	now := req.authTime
 	for subject, sids := range s.sessions {
-		for old, sess := range sids {
-			if now.Sub(sess.lastSeen) > refreshTokenTTL {
-				delete(sids, old)
-			}
-		}
+		maps.DeleteFunc(sids, func(_ string, sess session) bool {
+			return now.Sub(sess.lastSeen) > refreshTokenTTL
+		})
 		if len(sids) == 0 {
 			delete(s.sessions, subject)
 		}
@@ -298,11 +295,9 @@ func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration tim
 	now := time.Now()
 	s.mu.Lock()
 	// Evict expired tokens; nothing can resolve them any more.
-	for old, i := range s.accessTokens {
-		if i.expiration.Before(now) {
-			delete(s.accessTokens, old)
-		}
-	}
+	maps.DeleteFunc(s.accessTokens, func(_ string, i *accessTokenInfo) bool {
+		return i.expiration.Before(now)
+	})
 	exp := now.Add(accessTokenLifetime)
 	s.accessTokens[jti] = &accessTokenInfo{TokenClaims: info, expiration: exp}
 	s.mu.Unlock()
@@ -337,11 +332,9 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 		delete(s.sessions, userID)
 	}
 	// Drop this client's access tokens for the user.
-	for jti, info := range s.accessTokens {
-		if info.Sub == userID && matches(info.ClientID) {
-			delete(s.accessTokens, jti)
-		}
-	}
+	maps.DeleteFunc(s.accessTokens, func(_ string, info *accessTokenInfo) bool {
+		return info.Sub == userID && matches(info.ClientID)
+	})
 	s.mu.Unlock()
 
 	for _, sid := range revoke {
@@ -422,12 +415,21 @@ func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.
 	if len(s.cfg.Clients) == 0 {
 		return permissiveClient(clientID, presentationFrom(ctx)), nil
 	}
+	c, ok := s.clientConfig(clientID)
+	if !ok {
+		return nil, fmt.Errorf("client %q not found", clientID)
+	}
+	return clientFromConfig(c), nil
+}
+
+// clientConfig returns the configured client with the given id.
+func (s *Storage) clientConfig(clientID string) (config.Client, bool) {
 	for _, c := range s.cfg.Clients {
 		if c.ID == clientID {
-			return clientFromConfig(c), nil
+			return c, true
 		}
 	}
-	return nil, fmt.Errorf("client %q not found", clientID)
+	return config.Client{}, false
 }
 
 func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientSecret string) error {
@@ -435,18 +437,17 @@ func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientS
 	if len(s.cfg.Clients) == 0 {
 		return nil
 	}
-	for _, c := range s.cfg.Clients {
-		if c.ID == clientID {
-			if c.Secret == "" {
-				return errors.New("client is public; use PKCE")
-			}
-			if c.Secret != clientSecret {
-				return errors.New("invalid client secret")
-			}
-			return nil
-		}
+	c, ok := s.clientConfig(clientID)
+	if !ok {
+		return fmt.Errorf("client %q not found", clientID)
 	}
-	return fmt.Errorf("client %q not found", clientID)
+	if c.Secret == "" {
+		return errors.New("client is public; use PKCE")
+	}
+	if c.Secret != clientSecret {
+		return errors.New("invalid client secret")
+	}
+	return nil
 }
 
 // SetUserinfoFromScopes is deprecated; claims are set via SetUserinfoFromRequest.
