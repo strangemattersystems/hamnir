@@ -12,6 +12,7 @@ import (
 
 var (
 	errRevokedSession = errors.New("refresh session revoked")
+	errRevokedToken   = errors.New("refresh token revoked")
 	errMissingSID     = errors.New("refresh token missing session id")
 )
 
@@ -22,6 +23,7 @@ type RefreshClaims struct {
 	ClientID string
 	Scopes   []string
 	SID      string
+	JTI      string
 }
 
 type refreshTokenClaims struct {
@@ -37,7 +39,7 @@ type RefreshTokenManager struct {
 	audience string
 
 	mu      sync.RWMutex
-	revoked map[string]bool
+	revoked map[string]time.Time // sid or jti -> when it was revoked
 }
 
 func NewRefreshTokenManager(key *rsa.PrivateKey, ttl time.Duration, audience string) (*RefreshTokenManager, error) {
@@ -53,7 +55,7 @@ func NewRefreshTokenManager(key *rsa.PrivateKey, ttl time.Duration, audience str
 		pub:      &key.PublicKey,
 		ttl:      ttl,
 		audience: audience,
-		revoked:  map[string]bool{},
+		revoked:  map[string]time.Time{},
 	}, nil
 }
 
@@ -63,6 +65,7 @@ func (m *RefreshTokenManager) Issue(rc RefreshClaims) (string, error) {
 	}
 	now := time.Now()
 	registered := jwt.Claims{
+		ID:        randID(),
 		Issuer:    m.audience,
 		Subject:   rc.Sub,
 		Audience:  jwt.Audience{m.audience},
@@ -97,22 +100,36 @@ func (m *RefreshTokenManager) Parse(token string) (RefreshClaims, error) {
 	if m.isRevoked(private.SID) {
 		return RefreshClaims{}, errRevokedSession
 	}
+	if registered.ID != "" && m.isRevoked(registered.ID) {
+		return RefreshClaims{}, errRevokedToken
+	}
 	return RefreshClaims{
 		Sub:      registered.Subject,
 		ClientID: private.ClientID,
 		Scopes:   private.Scopes,
 		SID:      private.SID,
+		JTI:      registered.ID,
 	}, nil
 }
 
-func (m *RefreshTokenManager) Revoke(sid string) {
+// Revoke bars the given session id or token id (jti). Entries older than the
+// token TTL are pruned on each call: any token they could bar has expired on
+// its own by then, so the denylist stays bounded.
+func (m *RefreshTokenManager) Revoke(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.revoked[sid] = true
+	now := time.Now()
+	for k, at := range m.revoked {
+		if now.Sub(at) > m.ttl {
+			delete(m.revoked, k)
+		}
+	}
+	m.revoked[id] = now
 }
 
-func (m *RefreshTokenManager) isRevoked(sid string) bool {
+func (m *RefreshTokenManager) isRevoked(id string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.revoked[sid]
+	_, ok := m.revoked[id]
+	return ok
 }

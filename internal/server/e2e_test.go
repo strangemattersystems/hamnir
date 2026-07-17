@@ -372,6 +372,160 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatal("refresh token should be rejected after logout")
 		}
 	})
+
+	// revocation endpoint: RFC 7009 revocation of a refresh token must actually
+	// invalidate it — a later refresh grant with the revoked token fails.
+	t.Run("revoke endpoint invalidates refresh token", func(t *testing.T) {
+		srv, client := newServer(t, aliceConfig())
+		ctx := oidc.ClientContext(context.Background(), client)
+		rp, err := oidc.NewProvider(ctx, srv.URL)
+		if err != nil {
+			t.Fatalf("discovery: %v", err)
+		}
+		oauthCfg := oauth2.Config{
+			ClientID:    "isen",
+			Endpoint:    rp.Endpoint(),
+			RedirectURL: "http://app.test/callback",
+			Scopes:      []string{oidc.ScopeOpenID},
+		}
+		verifier := oauth2.GenerateVerifier()
+		authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
+
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
+		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		if tok.RefreshToken == "" {
+			t.Fatal("expected a refresh token")
+		}
+
+		var disc struct {
+			Revocation string `json:"revocation_endpoint"`
+		}
+		if err := rp.Claims(&disc); err != nil {
+			t.Fatal(err)
+		}
+		if disc.Revocation == "" {
+			t.Fatal("provider metadata has no revocation_endpoint")
+		}
+		resp, err := client.PostForm(disc.Revocation, url.Values{
+			"token":           {tok.RefreshToken},
+			"token_type_hint": {"refresh_token"},
+			"client_id":       {"isen"},
+		})
+		if err != nil {
+			t.Fatalf("revoke: %v", err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("revoke status = %d, want 200", resp.StatusCode)
+		}
+
+		if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err == nil {
+			t.Fatal("refresh token should be rejected after revocation")
+		}
+	})
+
+	// rotation: a refresh grant rotates the token; replaying the previous
+	// refresh token afterwards must fail, as against a real IdP.
+	t.Run("rotation invalidates replayed refresh token", func(t *testing.T) {
+		srv, client := newServer(t, aliceConfig())
+		ctx := oidc.ClientContext(context.Background(), client)
+		rp, err := oidc.NewProvider(ctx, srv.URL)
+		if err != nil {
+			t.Fatalf("discovery: %v", err)
+		}
+		oauthCfg := oauth2.Config{
+			ClientID:    "isen",
+			Endpoint:    rp.Endpoint(),
+			RedirectURL: "http://app.test/callback",
+			Scopes:      []string{oidc.ScopeOpenID},
+		}
+		verifier := oauth2.GenerateVerifier()
+		authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
+
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
+		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		old := tok.RefreshToken
+
+		rotated, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: old}).Token()
+		if err != nil {
+			t.Fatalf("refresh grant: %v", err)
+		}
+		if rotated.RefreshToken == "" || rotated.RefreshToken == old {
+			t.Fatalf("expected a rotated refresh token, got %q", rotated.RefreshToken)
+		}
+
+		// The rotated token works; the replaced one must not.
+		if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: rotated.RefreshToken}).Token(); err != nil {
+			t.Fatalf("rotated refresh token should work: %v", err)
+		}
+		if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: old}).Token(); err == nil {
+			t.Fatal("replaying the pre-rotation refresh token should be rejected")
+		}
+	})
+
+	// userinfo after logout: once the session is terminated the still-unexpired
+	// access token must be rejected outright, not answered with stripped claims.
+	t.Run("userinfo rejects token after logout", func(t *testing.T) {
+		srv, client := newServer(t, aliceConfig())
+		ctx := oidc.ClientContext(context.Background(), client)
+		rp, err := oidc.NewProvider(ctx, srv.URL)
+		if err != nil {
+			t.Fatalf("discovery: %v", err)
+		}
+		oauthCfg := oauth2.Config{
+			ClientID:    "isen",
+			Endpoint:    rp.Endpoint(),
+			RedirectURL: "http://app.test/callback",
+			Scopes:      []string{oidc.ScopeOpenID, "email"},
+		}
+		verifier := oauth2.GenerateVerifier()
+		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
+
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
+		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		rawID, _ := tok.Extra("id_token").(string)
+
+		var disc struct {
+			EndSession string `json:"end_session_endpoint"`
+			Userinfo   string `json:"userinfo_endpoint"`
+		}
+		if err := rp.Claims(&disc); err != nil {
+			t.Fatal(err)
+		}
+
+		userinfo := func() *http.Response {
+			req, _ := http.NewRequest(http.MethodGet, disc.Userinfo, nil)
+			req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("userinfo: %v", err)
+			}
+			return resp
+		}
+
+		if resp := userinfo(); resp.StatusCode != http.StatusOK || !strings.Contains(readBody(t, resp), "alice@example.test") {
+			t.Fatalf("userinfo before logout should return the email claim (status %d)", resp.StatusCode)
+		}
+
+		resp, err := client.Get(disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID))
+		if err != nil {
+			t.Fatalf("logout: %v", err)
+		}
+		_ = resp.Body.Close()
+
+		if resp := userinfo(); resp.StatusCode == http.StatusOK {
+			t.Fatalf("userinfo after logout should be rejected, got 200: %s", readBody(t, resp))
+		}
+	})
 }
 
 // aliceConfig is the minimal permissive-mode config used across the end-to-end

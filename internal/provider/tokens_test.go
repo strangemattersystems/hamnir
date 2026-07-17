@@ -78,6 +78,47 @@ func TestRefreshTokenManager(t *testing.T) {
 		}
 	})
 
+	t.Run("issues unique tokens for identical claims", func(t *testing.T) {
+		rc := RefreshClaims{Sub: "s", SID: "sid-uniq"}
+		a, err := m.Issue(rc)
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		b, err := m.Issue(rc)
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		if a == b {
+			t.Fatal("two issued tokens must not be identical")
+		}
+	})
+
+	t.Run("rejects revoked token id", func(t *testing.T) {
+		tok, err := m.Issue(RefreshClaims{Sub: "s", SID: "sid-jti"})
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		rc, err := m.Parse(tok)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if rc.JTI == "" {
+			t.Fatal("issued token carries no jti")
+		}
+		m.Revoke(rc.JTI)
+		if _, err := m.Parse(tok); !errors.Is(err, errRevokedToken) {
+			t.Fatalf("want errRevokedToken, got %v", err)
+		}
+		// Other tokens in the same session stay valid.
+		other, err := m.Issue(RefreshClaims{Sub: "s", SID: "sid-jti"})
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		if _, err := m.Parse(other); err != nil {
+			t.Fatalf("sibling token should stay valid: %v", err)
+		}
+	})
+
 	t.Run("refuses to issue without a session id", func(t *testing.T) {
 		if _, err := m.Issue(RefreshClaims{Sub: "s"}); !errors.Is(err, errMissingSID) {
 			t.Fatalf("want errMissingSID, got %v", err)

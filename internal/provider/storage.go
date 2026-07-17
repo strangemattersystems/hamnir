@@ -201,6 +201,13 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
+	// Rotation: the refresh grant presented currentRefreshToken; now that its
+	// replacement exists, revoke the old token's jti so a replay is rejected.
+	if currentRefreshToken != "" {
+		if rc, err := s.refresh.Parse(currentRefreshToken); err == nil && rc.JTI != "" {
+			s.refresh.Revoke(rc.JTI)
+		}
+	}
 	return jti, rt, exp, nil
 }
 
@@ -269,10 +276,16 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 	}
 	s.mu.Unlock()
 
-	// Otherwise treat it as a refresh token and revoke its session.
+	// Otherwise it is a refresh token: either the raw JWT, or the session id
+	// op resolved via GetRefreshTokenInfo. Revoke the session in both cases —
+	// RFC 7009 wants related tokens invalidated too, and rotated descendants
+	// share the sid. Revoking an id that never matches anything is harmless
+	// (the denylist prunes by TTL).
 	if rc, err := s.refresh.Parse(tokenOrTokenID); err == nil {
 		s.refresh.Revoke(rc.SID)
+		return nil
 	}
+	s.refresh.Revoke(tokenOrTokenID)
 	return nil
 }
 
@@ -334,8 +347,13 @@ func (s *Storage) SetUserinfoFromRequest(ctx context.Context, userinfo *oidc.Use
 }
 
 func (s *Storage) SetUserinfoFromToken(ctx context.Context, userinfo *oidc.UserInfo, tokenID, subject, origin string) error {
-	scopes := s.scopesForToken(tokenID)
-	s.setUserinfo(userinfo, subject, scopes)
+	s.mu.Lock()
+	info, ok := s.accessTokens[tokenID]
+	s.mu.Unlock()
+	if !ok || info.expiration.Before(time.Now()) {
+		return errors.New("token is invalid or has expired")
+	}
+	s.setUserinfo(userinfo, subject, info.scopes)
 	return nil
 }
 
@@ -382,15 +400,6 @@ func (s *Storage) setUserinfo(userinfo *oidc.UserInfo, subject string, scopes []
 		}
 		userinfo.AppendClaims(k, v)
 	}
-}
-
-func (s *Storage) scopesForToken(tokenID string) []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if info, ok := s.accessTokens[tokenID]; ok {
-		return info.scopes
-	}
-	return nil
 }
 
 func (s *Storage) GetKeyByIDAndClientID(ctx context.Context, keyID, clientID string) (*jose.JSONWebKey, error) {
