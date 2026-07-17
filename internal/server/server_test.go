@@ -10,12 +10,16 @@ import (
 )
 
 func TestNew(t *testing.T) {
+	t.Parallel()
+
 	cfg := &config.Config{Personas: []config.Persona{
 		{Name: "Alice", Claims: map[string]any{"sub": "usr_alice"}},
 	}}
 	srv, _ := newServer(t, cfg)
 
 	t.Run("serves discovery", func(t *testing.T) {
+		t.Parallel()
+
 		resp, err := srv.Client().Get(srv.URL + "/.well-known/openid-configuration")
 		if err != nil {
 			t.Fatal(err)
@@ -26,6 +30,8 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("serves login picker", func(t *testing.T) {
+		t.Parallel()
+
 		resp, err := srv.Client().Get(srv.URL + "/login?authRequestID=x")
 		if err != nil {
 			t.Fatal(err)
@@ -35,7 +41,19 @@ func TestNew(t *testing.T) {
 		}
 	})
 
+	t.Run("propagates a construction failure", func(t *testing.T) {
+		t.Parallel()
+
+		// A config with no signing key cannot build the token signer, so New
+		// must surface the error rather than return a half-built handler.
+		if _, err := New(&config.Config{Lifetimes: config.DefaultLifetimes}); err == nil {
+			t.Fatal("New with a nil signing key should fail")
+		}
+	})
+
 	t.Run("serves static assets", func(t *testing.T) {
+		t.Parallel()
+
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "eve.svg"), []byte("<svg/>"), 0o600); err != nil {
 			t.Fatal(err)
@@ -58,6 +76,8 @@ func TestNew(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
 				resp, err := srv.Client().Get(srv.URL + tt.path)
 				if err != nil {
 					t.Fatal(err)
