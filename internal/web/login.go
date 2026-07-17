@@ -31,6 +31,7 @@ type Handler struct {
 	complete    func(authRequestID, sub string) error
 	callbackURL string
 	tmpl        *template.Template
+	css         template.CSS // the stylesheet, inlined into every page
 }
 
 type cardVM struct {
@@ -50,6 +51,7 @@ type groupVM struct {
 type pageVM struct {
 	AuthRequestID string
 	Groups        []groupVM
+	CSS           template.CSS
 }
 
 // NewHandler builds a picker Handler. complete records the chosen persona on the
@@ -57,13 +59,16 @@ type pageVM struct {
 // to hand control back to the OpenID provider.
 func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, string) error, callbackURL string) *Handler {
 	tmpl := template.Must(template.ParseFS(assets, "templates/*.tmpl"))
-	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl}
+	css, err := assets.ReadFile("static/style.css")
+	if err != nil {
+		panic("web: embedded static/style.css: " + err.Error())
+	}
+	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl, css: template.CSS(css)}
 }
 
 // Routes registers the picker's handlers on mux: the static assets, the GET
 // login page, and the POST that completes a persona selection.
 func (h *Handler) Routes(mux *http.ServeMux) {
-	mux.Handle("/static/", http.FileServerFS(assets))
 	mux.HandleFunc("GET "+provider.LoginPath, h.getLogin)
 	mux.HandleFunc("POST "+provider.LoginPath+"/select", h.postSelect)
 }
@@ -132,7 +137,7 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 		})
 	}
 
-	vm := pageVM{AuthRequestID: authRequestID}
+	vm := pageVM{AuthRequestID: authRequestID, CSS: h.css}
 	for _, g := range h.cfg.Groups {
 		if len(cards[g.ID]) > 0 {
 			vm.Groups = append(vm.Groups, groupVM{

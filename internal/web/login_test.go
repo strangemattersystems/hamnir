@@ -62,6 +62,18 @@ func TestHandler_getLogin(t *testing.T) {
 		}
 	})
 
+	t.Run("inlines the stylesheet", func(t *testing.T) {
+		t.Parallel()
+
+		out := getLoginPage(newTestHandler(func(_, _ string) error { return nil })).Body.String()
+		if strings.Contains(out, `rel="stylesheet"`) {
+			t.Error("stylesheet should be inlined, not served via a <link>")
+		}
+		if !strings.Contains(out, "<style>") || !strings.Contains(out, ".card") {
+			t.Error("expected the stylesheet inlined into a <style> block")
+		}
+	})
+
 	t.Run("with a picture renders an avatar image", func(t *testing.T) {
 		t.Parallel()
 
