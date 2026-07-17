@@ -105,7 +105,7 @@ func TestProvider(t *testing.T) {
 	})
 }
 
-func TestNewProvider_BrowserURL(t *testing.T) {
+func TestNewProvider(t *testing.T) {
 	const issuer = "http://hamnir:5556"
 	const browser = "http://localhost:5556"
 

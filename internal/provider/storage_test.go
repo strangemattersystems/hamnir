@@ -49,23 +49,10 @@ func newTestStorageWithLifetimes(t *testing.T, lt config.Lifetimes) *Storage {
 	return st
 }
 
-// The signing key's JWKS kid must be derived from the key itself, not chosen
-// per process: replicas and restarts sharing one configured key must
-// advertise one consistent kid, or strict-kid verifiers reject tokens minted
-// by a different process holding the same key.
-func TestNewStorage_KeyID(t *testing.T) {
-	key1, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key2, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := &config.Config{}
-
-	newStorage := func(t *testing.T, key *rsa.PrivateKey) *Storage {
+func TestNewStorage(t *testing.T) {
+	newWithKey := func(t *testing.T, key *rsa.PrivateKey) *Storage {
 		t.Helper()
+		cfg := &config.Config{}
 		st, err := NewStorage(cfg, persona.NewSet(cfg), key)
 		if err != nil {
 			t.Fatal(err)
@@ -73,22 +60,60 @@ func TestNewStorage_KeyID(t *testing.T) {
 		return st
 	}
 
-	t.Run("same key same id", func(t *testing.T) {
-		first := newStorage(t, key1)
-		second := newStorage(t, key1)
-		if first.signing.id == "" {
+	t.Run("same key yields the same kid", func(t *testing.T) {
+		// kid must be derived from the key, not chosen per process: replicas and
+		// restarts sharing one configured key must advertise one consistent kid,
+		// or strict-kid verifiers reject tokens minted by another process.
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, b := newWithKey(t, key), newWithKey(t, key)
+		if a.signing.id == "" {
 			t.Fatal("signing key id must not be empty")
 		}
-		if first.signing.id != second.signing.id {
-			t.Fatalf("signing key ids differ: %q vs %q", first.signing.id, second.signing.id)
+		if a.signing.id != b.signing.id {
+			t.Fatalf("signing key ids differ: %q vs %q", a.signing.id, b.signing.id)
 		}
 	})
 
-	t.Run("different key different id", func(t *testing.T) {
-		a := newStorage(t, key1)
-		b := newStorage(t, key2)
-		if a.signing.id == b.signing.id {
+	t.Run("different keys yield different kids", func(t *testing.T) {
+		key1, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key2, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if newWithKey(t, key1).signing.id == newWithKey(t, key2).signing.id {
 			t.Fatal("signing key ids must differ for different keys")
+		}
+	})
+
+	t.Run("configured lifetimes flow through", func(t *testing.T) {
+		lt := config.Lifetimes{
+			AccessToken:  42 * time.Minute,
+			IDToken:      7 * time.Minute,
+			RefreshToken: 99 * time.Hour,
+		}
+		st := newTestStorageWithLifetimes(t, lt)
+
+		if st.refresh.ttl != lt.RefreshToken {
+			t.Errorf("refresh ttl = %v, want %v", st.refresh.ttl, lt.RefreshToken)
+		}
+
+		_, exp := st.storeAccessToken(TokenClaims{})
+		if got := time.Until(exp); got < lt.AccessToken-time.Minute || got > lt.AccessToken+time.Minute {
+			t.Errorf("access token expiry in %v, want ~%v", got, lt.AccessToken)
+		}
+
+		c, err := st.GetClientByClientID(t.Context(), "any")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := c.IDTokenLifetime(); got != lt.IDToken {
+			t.Errorf("IDTokenLifetime = %v, want %v", got, lt.IDToken)
 		}
 	})
 }
@@ -512,37 +537,6 @@ func TestStorage_DeleteAuthRequest(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("codes map should be empty, have %d entries", n)
 	}
-}
-
-func TestNewStorage_ConfiguredLifetimes(t *testing.T) {
-	lt := config.Lifetimes{
-		AccessToken:  42 * time.Minute,
-		IDToken:      7 * time.Minute,
-		RefreshToken: 99 * time.Hour,
-	}
-	st := newTestStorageWithLifetimes(t, lt)
-
-	if st.refresh.ttl != lt.RefreshToken {
-		t.Errorf("refresh ttl = %v, want %v", st.refresh.ttl, lt.RefreshToken)
-	}
-
-	t.Run("access token expiry", func(t *testing.T) {
-		_, exp := st.storeAccessToken(TokenClaims{})
-		got := time.Until(exp)
-		if got < lt.AccessToken-time.Minute || got > lt.AccessToken+time.Minute {
-			t.Errorf("expiry in %v, want ~%v", got, lt.AccessToken)
-		}
-	})
-
-	t.Run("id token lifetime on clients", func(t *testing.T) {
-		c, err := st.GetClientByClientID(t.Context(), "any")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := c.IDTokenLifetime(); got != lt.IDToken {
-			t.Errorf("IDTokenLifetime = %v, want %v", got, lt.IDToken)
-		}
-	})
 }
 
 func TestStorage_AudienceFor(t *testing.T) {
