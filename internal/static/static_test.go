@@ -54,4 +54,24 @@ func TestRegister(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("served files carry a cache lifetime", func(t *testing.T) {
+		t.Parallel()
+
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.static/avatars/eve.svg", nil))
+		if got := rec.Header().Get("Cache-Control"); got != cacheControlValue {
+			t.Errorf("Cache-Control = %q, want %q", got, cacheControlValue)
+		}
+	})
+
+	t.Run("directory 404 is not cached", func(t *testing.T) {
+		t.Parallel()
+
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.static/avatars/", nil))
+		if got := rec.Header().Get("Cache-Control"); got != "" {
+			t.Errorf("a directory 404 should not set Cache-Control, got %q", got)
+		}
+	})
 }
