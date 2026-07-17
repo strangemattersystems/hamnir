@@ -28,6 +28,50 @@ func newTestStorage(t *testing.T) *Storage {
 	return st
 }
 
+// The signing key's JWKS kid must be derived from the key itself, not chosen
+// per process: replicas and restarts sharing one configured key must
+// advertise one consistent kid, or strict-kid verifiers reject tokens minted
+// by a different process holding the same key.
+func TestNewStorage_KeyID(t *testing.T) {
+	key1, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key2, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+
+	newStorage := func(t *testing.T, key *rsa.PrivateKey) *Storage {
+		t.Helper()
+		st, err := NewStorage(cfg, persona.NewSet(cfg), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+
+	t.Run("same key same id", func(t *testing.T) {
+		first := newStorage(t, key1)
+		second := newStorage(t, key1)
+		if first.signing.id == "" {
+			t.Fatal("signing key id must not be empty")
+		}
+		if first.signing.id != second.signing.id {
+			t.Fatalf("signing key ids differ: %q vs %q", first.signing.id, second.signing.id)
+		}
+	})
+
+	t.Run("different key different id", func(t *testing.T) {
+		a := newStorage(t, key1)
+		b := newStorage(t, key2)
+		if a.signing.id == b.signing.id {
+			t.Fatal("signing key ids must differ for different keys")
+		}
+	})
+}
+
 // The in-memory stores must not grow without bound over a long-running dev
 // session: each write site sweeps entries that can no longer matter.
 func TestStorage_Eviction(t *testing.T) {

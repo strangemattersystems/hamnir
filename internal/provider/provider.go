@@ -1,9 +1,11 @@
 package provider
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 
 	jose "github.com/go-jose/go-jose/v4"
@@ -30,6 +32,18 @@ func randID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// keyID returns a deterministic kid for the signing key: the RFC 7638
+// SHA-256 JWK thumbprint of the public key, base64url-encoded. Identical
+// keys yield identical kids, so all replicas sharing a config advertise one
+// consistent JWKS and tokens survive restarts.
+func keyID(key *rsa.PrivateKey) (string, error) {
+	tp, err := (&jose.JSONWebKey{Key: &key.PublicKey}).Thumbprint(crypto.SHA256)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(tp), nil
 }
 
 type signingKey struct {

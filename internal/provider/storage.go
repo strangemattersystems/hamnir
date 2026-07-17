@@ -91,11 +91,15 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 	if err != nil {
 		return nil, err
 	}
+	kid, err := keyID(key)
+	if err != nil {
+		return nil, fmt.Errorf("derive key id: %w", err)
+	}
 	return &Storage{
 		cfg:      cfg,
 		personas: set,
 		refresh:  refresh,
-		signing:  &signingKey{id: randID(), key: key},
+		signing:  &signingKey{id: kid, key: key},
 
 		authRequests: make(map[string]*authRequest),
 		codes:        make(map[string]string),
