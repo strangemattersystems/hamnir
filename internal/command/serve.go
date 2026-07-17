@@ -18,8 +18,9 @@ const shutdownTimeout = 10 * time.Second
 
 // Serve loads the config at configPath and runs the hamnir server on addr until
 // ctx is cancelled, then drains in-flight requests within shutdownTimeout. It
-// warns when no clients are configured (permissive dev mode).
-func Serve(ctx context.Context, configPath, addr string) error {
+// warns when no clients are configured (permissive dev mode). version is echoed
+// by the server's /up liveness endpoint.
+func Serve(ctx context.Context, configPath, addr, version string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -28,7 +29,7 @@ func Serve(ctx context.Context, configPath, addr string) error {
 		slog.Warn("permissive dev mode — accepting any client_id and redirect_uri; DEV ONLY, do not expose to untrusted networks")
 	}
 
-	h, err := server.New(cfg)
+	h, err := server.New(cfg, version)
 	if err != nil {
 		return fmt.Errorf("build server: %w", err)
 	}

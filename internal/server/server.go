@@ -3,6 +3,7 @@
 package server
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
@@ -15,10 +16,10 @@ import (
 // New assembles the OIDC provider and the persona picker into a single
 // http.Handler. The provider serves discovery, /authorize, /token, /keys,
 // /userinfo, end-session and the auth callback at "/"; the picker's more
-// specific routes (/login, /login/select) take precedence. cfg must come from
-// config.Load, which normalises URLs and resolves hamnir:// style static claim
-// references.
-func New(cfg *config.Config) (http.Handler, error) {
+// specific routes (/login, /login/select) take precedence. version is echoed
+// verbatim by the /up liveness endpoint. cfg must come from config.Load, which
+// normalises URLs and resolves hamnir:// style static claim references.
+func New(cfg *config.Config, version string) (http.Handler, error) {
 	set := persona.NewSet(cfg)
 	st, err := provider.NewStorage(cfg, set, cfg.Key)
 	if err != nil {
@@ -40,5 +41,9 @@ func New(cfg *config.Config) (http.Handler, error) {
 	mux.Handle("/", ph)
 	web.NewHandler(set, cfg, st.AuthenticateAndComplete, provider.AuthCallbackPath).Routes(mux)
 	static.Register(mux, cfg.Static.Paths)
+	mux.HandleFunc("GET /up", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, version)
+	})
 	return gzipHandler(mux), nil
 }
