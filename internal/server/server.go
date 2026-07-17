@@ -40,5 +40,5 @@ func New(cfg *config.Config) (http.Handler, error) {
 	mux.Handle("/", ph)
 	web.NewHandler(set, cfg, st.AuthenticateAndComplete, provider.AuthCallbackPath).Routes(mux)
 	static.Register(mux, cfg.Static.Paths)
-	return mux, nil
+	return gzipHandler(mux), nil
 }
