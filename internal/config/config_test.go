@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,20 @@ personas:
 			t.Fatalf("Load() = %v, want errDuplicateSub", err)
 		}
 	})
+
+	t.Run("missing file", func(t *testing.T) {
+		_, err := Load(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("Load() = %v, want fs.ErrNotExist", err)
+		}
+	})
+
+	t.Run("rejects unknown field", func(t *testing.T) {
+		p := writeTemp(t, "bogus_field: 1\npersonas:\n  - claims: { sub: s }\n")
+		if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "bogus_field") {
+			t.Fatalf("Load() = %v, want error naming the unknown field", err)
+		}
+	})
 }
 
 func TestLoad_StaticDefaultsAndNormalises(t *testing.T) {
@@ -173,8 +188,10 @@ func TestLoad_NormalisesURLs(t *testing.T) {
 
 func TestLoad_ResolvesStaticClaims(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "eve.svg"), []byte("<svg/>"), 0o600); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"eve.svg", "eve avatar.svg"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("<svg/>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	static := "static:\n  paths: { avatars: " + dir + " }\n"
 	eve := "personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars/eve.svg }\n"
@@ -208,6 +225,16 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 				"personas:\n  - claims: { sub: usr_eve, picture: hamnir://nope/eve.svg }\n",
 			"", ErrUnresolved,
 		},
+		{
+			"path traversal rejected", "issuer: http://hamnir:5556\n" + static +
+				"personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars/../eve.svg }\n",
+			"", ErrUnresolved,
+		},
+		{
+			"malformed ref rejected", "issuer: http://hamnir:5556\n" + static +
+				"personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars }\n",
+			"", ErrUnresolved,
+		},
 		{"ref without static block", "issuer: http://hamnir:5556\n" + eve, "", ErrUnresolved},
 		{"ref without base", static + eve, "", ErrNoBase},
 	}
@@ -230,9 +257,6 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 	}
 
 	t.Run("special characters escaped", func(t *testing.T) {
-		if err := os.WriteFile(filepath.Join(dir, "eve avatar.svg"), []byte("<svg/>"), 0o600); err != nil {
-			t.Fatal(err)
-		}
 		cfg, err := Load(writeTemp(t, "issuer: http://hamnir:5556\n"+static+
 			"personas:\n  - claims: { sub: usr_eve, picture: 'hamnir://avatars/eve avatar.svg' }\n"))
 		if err != nil {
@@ -253,6 +277,18 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 		got := cfg.Personas[0].Claims["profile"].(map[string]any)["avatar"]
 		if got != "http://hamnir:5556/.static/avatars/eve.svg" {
 			t.Errorf("nested avatar = %v", got)
+		}
+	})
+
+	t.Run("non-string claim preserved", func(t *testing.T) {
+		// Scalar claims that are not strings take rewriteValue's default branch
+		// and pass through untouched.
+		cfg, err := Load(writeTemp(t, "personas:\n  - claims: { sub: usr_eve, email_verified: true, age: 30 }\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got := cfg.Personas[0].Claims["email_verified"]; got != true {
+			t.Errorf("email_verified = %v, want true", got)
 		}
 	})
 }
