@@ -19,6 +19,9 @@ var (
 
 const defaultRefreshAudience = "hamnir"
 
+// TokenClaims is the identity and session data hamnir threads through token
+// issuance: the subject, client, granted scopes and session id, plus — on a
+// token parsed during a refresh grant — the source token's jti.
 type TokenClaims struct {
 	Sub      string
 	ClientID string
@@ -33,6 +36,9 @@ type refreshTokenClaims struct {
 	SID      string   `json:"sid"`
 }
 
+// RefreshTokenManager issues and verifies hamnir's self-contained refresh
+// tokens (signed JWTs) and maintains the denylist of revoked session and token
+// ids. It is safe for concurrent use.
 type RefreshTokenManager struct {
 	signer   jose.Signer
 	pub      *rsa.PublicKey
@@ -60,6 +66,8 @@ func NewRefreshTokenManager(key *rsa.PrivateKey, ttl time.Duration, audience str
 	}, nil
 }
 
+// Issue mints a signed refresh token for rc. It fails when rc carries no
+// session id, since a token with no sid could never be revoked.
 func (m *RefreshTokenManager) Issue(rc TokenClaims) (string, error) {
 	if rc.SID == "" {
 		return "", errMissingSID
