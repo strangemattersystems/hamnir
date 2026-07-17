@@ -1,5 +1,7 @@
 package persona
 
+// standardScopeClaims maps each OIDC standard scope to the claims it releases,
+// per OpenID Connect Core section 5.4.
 var standardScopeClaims = map[string][]string{
 	"profile": {
 		"name", "family_name", "given_name", "middle_name", "nickname",
@@ -11,6 +13,8 @@ var standardScopeClaims = map[string][]string{
 	"address": {"address"},
 }
 
+// standardClaims is the set of all OIDC standard claims (including sub), used to
+// distinguish them from custom claims during release.
 var standardClaims = func() map[string]bool {
 	s := map[string]bool{"sub": true}
 	for _, cs := range standardScopeClaims {
@@ -21,6 +25,12 @@ var standardClaims = func() map[string]bool {
 	return s
 }()
 
+// ReleaseClaims returns the subset of claims that requestedScopes permit a
+// client to receive. Standard OIDC claims are released only when the scope that
+// governs them is requested; sub is always released. Custom claims named in
+// scopeMap are gated behind their scope, while a custom claim absent from
+// scopeMap is always released. Standard claims are matched first, so a scopeMap
+// entry naming a standard claim has no effect.
 func ReleaseClaims(claims map[string]any, requestedScopes []string, scopeMap map[string][]string) map[string]any {
 	scopeSet := map[string]bool{}
 	for _, s := range requestedScopes {
