@@ -1,3 +1,5 @@
+// Package command implements hamnir's CLI subcommands: init (write a starter
+// config), serve (run the provider), and validate (check a config).
 package command
 
 import (
@@ -14,6 +16,9 @@ import (
 
 const shutdownTimeout = 10 * time.Second
 
+// Serve loads the config at configPath and runs the hamnir server on addr until
+// ctx is cancelled, then drains in-flight requests within shutdownTimeout. It
+// warns when no clients are configured (permissive dev mode).
 func Serve(ctx context.Context, configPath, addr string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
