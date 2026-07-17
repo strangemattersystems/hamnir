@@ -100,7 +100,7 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 
 	cards := map[string][]cardVM{}
 	var extras []string
-	for _, p := range h.set.All() {
+	for p := range h.set.All() {
 		gid := p.Group
 		if _, declared := byID[gid]; !declared && len(cards[gid]) == 0 {
 			extras = append(extras, gid)

@@ -2,7 +2,12 @@
 // presentation, and derives the claims released to a client for a set of scopes.
 package persona
 
-import "github.com/strangemattersystems/hamnir/internal/config"
+import (
+	"iter"
+	"slices"
+
+	"github.com/strangemattersystems/hamnir/internal/config"
+)
 
 // Set is a read-only index over the configured [config.Persona] values, built
 // once at startup and safe for concurrent use.
@@ -32,9 +37,9 @@ func (s *Set) BySub(sub string) (config.Persona, bool) {
 	return p, ok
 }
 
-// All returns the configured personas in declaration order.
-func (s *Set) All() []config.Persona {
-	return s.all
+// All yields the configured personas in declaration order.
+func (s *Set) All() iter.Seq[config.Persona] {
+	return slices.Values(s.all)
 }
 
 // DisplayName returns a display label for p: its explicit Name if set,
