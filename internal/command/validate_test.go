@@ -10,10 +10,11 @@ import (
 
 func TestValidate(t *testing.T) {
 	tests := []struct {
-		name    string
-		yaml    string
-		wantErr bool
-		wantOut string
+		name       string
+		yaml       string
+		withoutKey bool
+		wantErr    bool
+		wantOut    string
 	}{
 		{
 			name:    "valid",
@@ -32,16 +33,17 @@ func TestValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "missing signing key",
-			yaml:    "personas:\n  - name: A\n    claims:\n      sub: a\n",
-			wantErr: true,
+			name:       "missing signing key",
+			yaml:       "personas:\n  - name: A\n    claims:\n      sub: a\n",
+			withoutKey: true,
+			wantErr:    true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "hamnir.yaml")
 			body := tt.yaml
-			if tt.name != "missing signing key" {
+			if !tt.withoutKey {
 				key, err := testSigningKey()
 				if err != nil {
 					t.Fatal(err)
