@@ -107,4 +107,19 @@ func TestGzipHandler(t *testing.T) {
 			t.Error("HEAD must not be gzip-encoded")
 		}
 	})
+
+	t.Run("passes Range requests through uncompressed", func(t *testing.T) {
+		t.Parallel()
+
+		// A gzip stream cannot be range-served, so a Range request bypasses
+		// compression and lets the underlying handler honour the range.
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+		req.Header.Set("Range", "bytes=0-3")
+		rec := httptest.NewRecorder()
+		gzipHandler(htmlHandler(body)).ServeHTTP(rec, req)
+		if rec.Header().Get("Content-Encoding") == "gzip" {
+			t.Error("a Range request must not be gzip-encoded")
+		}
+	})
 }
