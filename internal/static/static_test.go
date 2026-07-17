@@ -74,4 +74,17 @@ func TestRegister(t *testing.T) {
 			t.Errorf("a directory 404 should not set Cache-Control, got %q", got)
 		}
 	})
+
+	t.Run("missing-file 404 is not cached", func(t *testing.T) {
+		t.Parallel()
+
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.static/avatars/nope.svg", nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("want 404, got %d", rec.Code)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "" {
+			t.Errorf("a missing-file 404 should not set Cache-Control, got %q", got)
+		}
+	})
 }

@@ -25,13 +25,28 @@ func Register(mux *http.ServeMux, paths map[string]string) {
 	}
 }
 
-// cacheControl sets [cacheControlValue] on responses before serving. It sits
-// inside noDirList so a directory-listing 404 is not given a cache lifetime.
+// cacheControl sets [cacheControlValue] on responses, then strips it again from
+// error responses so a 404 for a missing (or not-yet-created) asset is not
+// cached. It sits inside noDirList, whose directory-listing 404 short-circuits
+// before this runs.
 func cacheControl(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", cacheControlValue)
-		h.ServeHTTP(w, r)
+		h.ServeHTTP(&uncacheErrors{ResponseWriter: w}, r)
 	})
+}
+
+// uncacheErrors removes the Cache-Control header on error responses (4xx/5xx),
+// so only successfully served assets carry a cache lifetime.
+type uncacheErrors struct {
+	http.ResponseWriter
+}
+
+func (u *uncacheErrors) WriteHeader(status int) {
+	if status >= http.StatusBadRequest {
+		u.Header().Del("Cache-Control")
+	}
+	u.ResponseWriter.WriteHeader(status)
 }
 
 // noDirList wraps h to answer 404 for any request whose path ends in "/",
