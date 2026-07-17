@@ -20,34 +20,7 @@ import (
 
 func TestEndToEnd(t *testing.T) {
 	t.Run("auth code flow", func(t *testing.T) {
-		cfg := &config.Config{Personas: []config.Persona{
-			{Name: "Alice", Claims: map[string]any{
-				"sub": "usr_alice", "email": "alice@example.test",
-				"email_verified": true, "roles": []any{"coach"},
-			}},
-		}}
-		key, err := provider.LoadOrGenerateKey(filepath.Join(t.TempDir(), "key.pem"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		h, err := New(cfg, key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		srv := httptest.NewServer(h)
-		defer srv.Close()
-
-		jar, _ := cookiejar.New(nil)
-		client := srv.Client()
-		client.Jar = jar
-		// Don't actually dial the app's callback host; stop there so we can read the code.
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			if req.URL.Host == "app.test" {
-				return http.ErrUseLastResponse
-			}
-			return nil
-		}
-
+		srv, client := newServer(t, aliceConfig())
 		ctx := oidc.ClientContext(context.Background(), client)
 		rp, err := oidc.NewProvider(ctx, srv.URL)
 		if err != nil {
@@ -63,31 +36,10 @@ func TestEndToEnd(t *testing.T) {
 		verifier := oauth2.GenerateVerifier()
 		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
 
-		// 1. Authorize → follow to the picker.
-		resp, err := client.Get(authURL)
-		if err != nil {
-			t.Fatalf("authorize: %v", err)
-		}
-		body := readBody(t, resp)
-		if !strings.Contains(body, "Alice") {
-			t.Fatalf("expected picker, got: %s", body)
-		}
-		authRequestID := between(body, `name="authRequestID" value="`, `"`)
-		if authRequestID == "" {
-			t.Fatalf("authRequestID not found in picker HTML")
-		}
-
-		// 2. Select the persona → provider issues the code and redirects to app.test.
-		sel, err := client.PostForm(srv.URL+"/login/select", url.Values{
-			"authRequestID": {authRequestID},
-			"sub":           {"usr_alice"},
-		})
-		if err != nil {
-			t.Fatalf("select: %v", err)
-		}
-		code := codeFrom(sel)
+		// 1+2. Authorize → picker → select Alice; the redirect carries the code.
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
 		if code == "" {
-			t.Fatalf("no auth code; final=%s location=%s", sel.Request.URL, sel.Header.Get("Location"))
+			t.Fatal("expected an auth code")
 		}
 
 		// 3. Exchange code + PKCE verifier.

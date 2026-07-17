@@ -9,9 +9,14 @@ import (
 	"github.com/strangemattersystems/hamnir/internal/config"
 )
 
-// loginPath is where unauthenticated /authorize requests are redirected so the
-// user can pick a persona; the auth request id is passed as a query parameter.
-const loginPath = "/login?authRequestID="
+// LoginPath is the picker route unauthenticated /authorize requests are
+// redirected to, with the auth request id in the AuthRequestIDParam query
+// parameter. The web package registers its route and reads the parameter via
+// these same constants, so the two halves of the handshake cannot drift.
+const (
+	LoginPath          = "/login"
+	AuthRequestIDParam = "authRequestID"
+)
 
 // authRequest is hamnir's in-memory op.AuthRequest. It starts unauthenticated
 // (done == false); AuthenticateAndComplete fills in the subject and session id.
@@ -95,14 +100,16 @@ var (
 	_ op.HasRedirectGlobs = (*client)(nil)
 )
 
-func (c *client) GetID() string                        { return c.id }
-func (c *client) RedirectURIs() []string               { return c.redirectURIs }
-func (c *client) PostLogoutRedirectURIs() []string     { return c.postLogoutRedirectURIs }
-func (c *client) ApplicationType() op.ApplicationType  { return c.applicationType }
-func (c *client) AuthMethod() oidc.AuthMethod          { return c.authMethod }
-func (c *client) ResponseTypes() []oidc.ResponseType   { return c.responseTypes }
-func (c *client) GrantTypes() []oidc.GrantType         { return c.grantTypes }
-func (c *client) LoginURL(id string) string            { return loginPath + id }
+func (c *client) GetID() string                       { return c.id }
+func (c *client) RedirectURIs() []string              { return c.redirectURIs }
+func (c *client) PostLogoutRedirectURIs() []string    { return c.postLogoutRedirectURIs }
+func (c *client) ApplicationType() op.ApplicationType { return c.applicationType }
+func (c *client) AuthMethod() oidc.AuthMethod         { return c.authMethod }
+func (c *client) ResponseTypes() []oidc.ResponseType  { return c.responseTypes }
+func (c *client) GrantTypes() []oidc.GrantType        { return c.grantTypes }
+func (c *client) LoginURL(id string) string {
+	return LoginPath + "?" + AuthRequestIDParam + "=" + id
+}
 func (c *client) AccessTokenType() op.AccessTokenType  { return c.accessTokenType }
 func (c *client) IDTokenLifetime() time.Duration       { return idTokenLifetime }
 func (c *client) DevMode() bool                        { return c.devMode }
@@ -119,7 +126,10 @@ func (c *client) RestrictAdditionalAccessTokenScopes() func([]string) []string {
 	return func(scopes []string) []string { return scopes }
 }
 
-// IsScopeAllowed permits any custom scope defined in the config's scope map.
+// IsScopeAllowed accepts every scope, deliberately: hamnir does not gate scope
+// acceptance — unknown scopes are echoed back and simply release no claims.
+// The config's scope map gates claim release (persona.ReleaseClaims), not
+// which scopes a client may request.
 func (c *client) IsScopeAllowed(scope string) bool {
 	return true
 }

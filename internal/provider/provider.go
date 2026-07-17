@@ -17,7 +17,11 @@ import (
 // AuthCallbackPath is the path the login UI must redirect back to (with the auth
 // request id in the "id" query parameter) once a persona has been selected. It
 // mirrors zitadel's default: the authorization endpoint ("/authorize") plus the
-// "/callback" suffix.
+// "/callback" suffix. op exports an AuthCallbackURL helper that would avoid the
+// mirroring, but it builds an absolute URL from the issuer in the request
+// context, and the picker routes are mounted on the outer mux outside op's
+// issuer middleware — so hamnir deliberately redirects via this relative path
+// instead. Revisit if op's callback wiring changes on upgrade.
 const AuthCallbackPath = "/authorize/callback"
 
 // randID returns a hex-encoded, cryptographically-random identifier used for

@@ -2,29 +2,18 @@ package server
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
-	"github.com/strangemattersystems/hamnir/internal/provider"
 )
 
 func TestNew(t *testing.T) {
 	cfg := &config.Config{Personas: []config.Persona{
 		{Name: "Alice", Claims: map[string]any{"sub": "usr_alice"}},
 	}}
-	key, err := provider.LoadOrGenerateKey(filepath.Join(t.TempDir(), "key.pem"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := New(cfg, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
+	srv, _ := newServer(t, cfg)
 
 	t.Run("serves discovery", func(t *testing.T) {
 		resp, err := srv.Client().Get(srv.URL + "/.well-known/openid-configuration")
@@ -57,16 +46,7 @@ func TestNew_ServesStatic(t *testing.T) {
 		Static:   config.Static{Prefix: "hamnir://", Paths: map[string]string{"avatars": dir}},
 		Personas: []config.Persona{{Claims: map[string]any{"sub": "usr_eve"}}},
 	}
-	key, err := provider.LoadOrGenerateKey(filepath.Join(t.TempDir(), "key.pem"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := New(cfg, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(h)
-	defer srv.Close()
+	srv, _ := newServer(t, cfg)
 
 	tests := []struct {
 		name string

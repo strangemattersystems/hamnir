@@ -9,6 +9,7 @@ import (
 
 	"github.com/strangemattersystems/hamnir/internal/config"
 	"github.com/strangemattersystems/hamnir/internal/persona"
+	"github.com/strangemattersystems/hamnir/internal/provider"
 )
 
 type Handler struct {
@@ -46,12 +47,12 @@ func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, stri
 
 func (h *Handler) Routes(mux *http.ServeMux) {
 	mux.Handle("/static/", http.FileServerFS(assets))
-	mux.HandleFunc("GET /login", h.getLogin)
-	mux.HandleFunc("POST /login/select", h.postSelect)
+	mux.HandleFunc("GET "+provider.LoginPath, h.getLogin)
+	mux.HandleFunc("POST "+provider.LoginPath+"/select", h.postSelect)
 }
 
 func (h *Handler) getLogin(w http.ResponseWriter, r *http.Request) {
-	vm := h.buildPage(r.URL.Query().Get("authRequestID"))
+	vm := h.buildPage(r.URL.Query().Get(provider.AuthRequestIDParam))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = h.tmpl.ExecuteTemplate(w, "picker.html.tmpl", vm)
 }
