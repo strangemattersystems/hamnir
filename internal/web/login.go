@@ -1,8 +1,12 @@
+// Package web serves hamnir's persona picker: the login page where a developer
+// chooses which persona to authenticate as, and the form post that completes
+// the pending authorization request.
 package web
 
 import (
 	"bytes"
 	"cmp"
+	"embed"
 	"errors"
 	"html/template"
 	"log/slog"
@@ -15,12 +19,19 @@ import (
 	"github.com/strangemattersystems/hamnir/internal/provider"
 )
 
+//go:embed templates/*.tmpl static/*
+var assets embed.FS
+
+// Handler serves the persona picker and completes the authorization request for
+// the chosen persona. It is read-only after construction and safe for
+// concurrent use.
 type Handler struct {
 	set         *persona.Set
 	cfg         *config.Config
 	complete    func(authRequestID, sub string) error
 	callbackURL string
 	tmpl        *template.Template
+	css         template.CSS // the stylesheet, inlined into every page
 }
 
 type cardVM struct {
@@ -40,15 +51,25 @@ type groupVM struct {
 type pageVM struct {
 	AuthRequestID string
 	Groups        []groupVM
+	CSS           template.CSS
 }
 
+// NewHandler builds a picker Handler. complete records the chosen persona on the
+// pending auth request, and callbackURL is where a completed selection redirects
+// to hand control back to the OpenID provider.
 func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, string) error, callbackURL string) *Handler {
 	tmpl := template.Must(template.ParseFS(assets, "templates/*.tmpl"))
-	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl}
+	raw, err := assets.ReadFile("static/style.css")
+	if err != nil {
+		panic("web: embedded static/style.css: " + err.Error())
+	}
+	css := template.CSS(raw) //nolint:gosec // G203: raw is our own embedded stylesheet, not user input.
+	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl, css: css}
 }
 
+// Routes registers the picker's handlers on mux: the GET login page and the
+// POST that completes a persona selection.
 func (h *Handler) Routes(mux *http.ServeMux) {
-	mux.Handle("/static/", http.FileServerFS(assets))
 	mux.HandleFunc("GET "+provider.LoginPath, h.getLogin)
 	mux.HandleFunc("POST "+provider.LoginPath+"/select", h.postSelect)
 }
@@ -100,7 +121,7 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 
 	cards := map[string][]cardVM{}
 	var extras []string
-	for _, p := range h.set.All() {
+	for p := range h.set.All() {
 		gid := p.Group
 		if _, declared := byID[gid]; !declared && len(cards[gid]) == 0 {
 			extras = append(extras, gid)
@@ -117,7 +138,7 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 		})
 	}
 
-	vm := pageVM{AuthRequestID: authRequestID}
+	vm := pageVM{AuthRequestID: authRequestID, CSS: h.css}
 	for _, g := range h.cfg.Groups {
 		if len(cards[g.ID]) > 0 {
 			vm.Groups = append(vm.Groups, groupVM{

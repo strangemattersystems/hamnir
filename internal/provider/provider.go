@@ -1,3 +1,6 @@
+// Package provider adapts hamnir's config and personas to the zitadel/oidc
+// server (op): an in-memory [op.Storage], the client and request models op
+// drives, and the constructors that assemble the OpenID provider.
 package provider
 
 import (

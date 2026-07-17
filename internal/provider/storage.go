@@ -242,6 +242,10 @@ func (s *Storage) DeleteAuthRequest(ctx context.Context, id string) error {
 	return nil
 }
 
+// CreateAccessToken issues a standalone access token. hamnir grants
+// offline_access by default (see withOfflineAccess), so op routes issuance
+// through CreateAccessAndRefreshTokens instead; this satisfies op.Storage and
+// is reached only if that policy changes.
 func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest) (string, time.Time, error) {
 	info, err := requestInfo(request)
 	if err != nil {

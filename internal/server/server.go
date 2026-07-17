@@ -1,3 +1,5 @@
+// Package server wires the OpenID provider, the persona picker, and static
+// asset serving into a single http.Handler.
 package server
 
 import (
@@ -13,9 +15,9 @@ import (
 // New assembles the OIDC provider and the persona picker into a single
 // http.Handler. The provider serves discovery, /authorize, /token, /keys,
 // /userinfo, end-session and the auth callback at "/"; the picker's more
-// specific routes (/login, /login/select, /static/) take precedence.
-// cfg must come from config.Load, which normalises URLs and resolves
-// hamnir:// style static claim references.
+// specific routes (/login, /login/select) take precedence. cfg must come from
+// config.Load, which normalises URLs and resolves hamnir:// style static claim
+// references.
 func New(cfg *config.Config) (http.Handler, error) {
 	set := persona.NewSet(cfg)
 	st, err := provider.NewStorage(cfg, set, cfg.Key)
@@ -38,5 +40,5 @@ func New(cfg *config.Config) (http.Handler, error) {
 	mux.Handle("/", ph)
 	web.NewHandler(set, cfg, st.AuthenticateAndComplete, provider.AuthCallbackPath).Routes(mux)
 	static.Register(mux, cfg.Static.Paths)
-	return mux, nil
+	return gzipHandler(mux), nil
 }

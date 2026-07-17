@@ -16,12 +16,16 @@ import (
 )
 
 func TestCryptoKey(t *testing.T) {
+	t.Parallel()
+
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Run("deterministic for a given key", func(t *testing.T) {
+		t.Parallel()
+
 		first := cryptoKey(key)
 		second := cryptoKey(key)
 		if first != second {
@@ -105,7 +109,7 @@ func TestProvider(t *testing.T) {
 	})
 }
 
-func TestNewProvider_BrowserURL(t *testing.T) {
+func TestNewProvider(t *testing.T) {
 	const issuer = "http://hamnir:5556"
 	const browser = "http://localhost:5556"
 

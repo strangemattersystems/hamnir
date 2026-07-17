@@ -12,8 +12,12 @@ import (
 )
 
 var (
+	// ErrUnresolved is returned when a hamnir:// claim reference is malformed or
+	// does not name a configured mount and an existing file.
 	ErrUnresolved = errors.New("unresolved static reference")
-	ErrNoBase     = errors.New("static reference needs issuer or browser_url")
+	// ErrNoBase is returned when a static reference cannot be resolved because
+	// neither issuer nor browser_url is set.
+	ErrNoBase = errors.New("static reference needs issuer or browser_url")
 )
 
 // baseURL is the browser-facing base against which static references resolve:

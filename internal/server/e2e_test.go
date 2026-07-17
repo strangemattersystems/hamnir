@@ -21,8 +21,16 @@ import (
 	"github.com/strangemattersystems/hamnir/internal/config"
 )
 
+// TestEndToEnd's subtests run in parallel, which is safe only because none sets
+// browser_url: provider.NewProvider mutates op's package-global DefaultEndpoints
+// in place ONLY for a browser_url split, so with none set every construction
+// merely reads the global. A future browser_url case here must not be parallel.
 func TestEndToEnd(t *testing.T) {
+	t.Parallel()
+
 	t.Run("auth code flow", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("isen", "", "email", "profile")
 		verifier := oauth2.GenerateVerifier()
@@ -70,6 +78,8 @@ func TestEndToEnd(t *testing.T) {
 	// standard client shape — client secret auth with no PKCE (any secret is
 	// accepted since none is registered).
 	t.Run("confidential client without pkce", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("webapp", "any-secret", "email")
 		code := e.obtainCode(t, oauthCfg, oidc.Nonce("nonce123"))
@@ -90,6 +100,8 @@ func TestEndToEnd(t *testing.T) {
 	// unauthenticated exchange rejected: a client presenting neither a secret
 	// nor PKCE is non-conformant; real IdPs reject it, so hamnir does too.
 	t.Run("no secret and no pkce rejected", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("webapp", "")
 		code := e.obtainCode(t, oauthCfg)
@@ -103,6 +115,8 @@ func TestEndToEnd(t *testing.T) {
 	// login, so RP-initiated logout must honour post_logout_redirect_uri the
 	// same way, sending the browser back to the app with the state echoed.
 	t.Run("logout redirect round-trip", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("isen", "")
 		verifier := oauth2.GenerateVerifier()
@@ -137,6 +151,8 @@ func TestEndToEnd(t *testing.T) {
 	// pkce mismatch: the token endpoint rejects a code exchange presenting the
 	// wrong PKCE verifier — proof that PKCE is enforced, not merely accepted.
 	t.Run("pkce mismatch", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("isen", "")
 		verifier := oauth2.GenerateVerifier()
@@ -153,6 +169,8 @@ func TestEndToEnd(t *testing.T) {
 	// authorize request carrying a redirect_uri the client did not register is
 	// refused — and the user is never redirected to it (no open redirect).
 	t.Run("unregistered redirect", func(t *testing.T) {
+		t.Parallel()
+
 		cfg := aliceConfig()
 		cfg.Clients = []config.Client{{
 			ID:           "isen",
@@ -181,6 +199,8 @@ func TestEndToEnd(t *testing.T) {
 	// endpoint invalidates the session's refresh token so a later refresh grant
 	// is rejected.
 	t.Run("logout revokes refresh", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("isen", "", "email")
 		verifier := oauth2.GenerateVerifier()
@@ -215,6 +235,8 @@ func TestEndToEnd(t *testing.T) {
 	// revocation endpoint: RFC 7009 revocation of a refresh token must actually
 	// invalidate it — a later refresh grant with the revoked token fails.
 	t.Run("revoke endpoint invalidates refresh token", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("isen", "")
 		verifier := oauth2.GenerateVerifier()
@@ -249,6 +271,8 @@ func TestEndToEnd(t *testing.T) {
 	// rotation: a refresh grant rotates the token; replaying the previous
 	// refresh token afterwards must fail, as against a real IdP.
 	t.Run("rotation invalidates replayed refresh token", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("isen", "")
 		verifier := oauth2.GenerateVerifier()
@@ -280,6 +304,8 @@ func TestEndToEnd(t *testing.T) {
 	// userinfo after logout: once the session is terminated the still-unexpired
 	// access token must be rejected outright, not answered with stripped claims.
 	t.Run("userinfo rejects token after logout", func(t *testing.T) {
+		t.Parallel()
+
 		e := discover(t, aliceConfig())
 		oauthCfg := e.app("isen", "", "email")
 		verifier := oauth2.GenerateVerifier()
@@ -320,6 +346,8 @@ func TestEndToEnd(t *testing.T) {
 	// id_token's aud must contain both it and the client_id (op appends the
 	// client; spec-legal, deliberate).
 	t.Run("configured audience", func(t *testing.T) {
+		t.Parallel()
+
 		cfg := aliceConfig()
 		cfg.Audiences = []string{"https://api.example.test"}
 		e := discover(t, cfg)

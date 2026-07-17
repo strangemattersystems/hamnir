@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +34,11 @@ func writeTemp(t *testing.T, body string) string {
 }
 
 func TestLoad(t *testing.T) {
+	t.Parallel()
+
 	t.Run("minimal", func(t *testing.T) {
+		t.Parallel()
+
 		p := writeTemp(t, `
 personas:
   - claims: { sub: usr_alice, email: alice@example.test, name: Alice Morgan, roles: [client] }
@@ -51,6 +56,8 @@ personas:
 	})
 
 	t.Run("full", func(t *testing.T) {
+		t.Parallel()
+
 		p := writeTemp(t, `
 issuer: http://localhost:5556
 clients:
@@ -86,6 +93,8 @@ personas:
 	})
 
 	t.Run("surfaces validation errors", func(t *testing.T) {
+		t.Parallel()
+
 		p := writeTemp(t, `
 personas:
   - claims: { sub: dup }
@@ -95,9 +104,29 @@ personas:
 			t.Fatalf("Load() = %v, want errDuplicateSub", err)
 		}
 	})
+
+	t.Run("missing file", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := Load(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("Load() = %v, want fs.ErrNotExist", err)
+		}
+	})
+
+	t.Run("rejects unknown field", func(t *testing.T) {
+		t.Parallel()
+
+		p := writeTemp(t, "bogus_field: 1\npersonas:\n  - claims: { sub: s }\n")
+		if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "bogus_field") {
+			t.Fatalf("Load() = %v, want error naming the unknown field", err)
+		}
+	})
 }
 
 func TestLoad_StaticDefaultsAndNormalises(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.yaml")
 	key, err := testSigningKey()
@@ -127,6 +156,8 @@ signing_key: ` + key + `
 	}
 
 	t.Run("prefix defaults without paths", func(t *testing.T) {
+		t.Parallel()
+
 		cfg, err := Load(writeTemp(t, "personas:\n  - claims: { sub: s }\n"))
 		if err != nil {
 			t.Fatalf("Load: %v", err)
@@ -138,6 +169,8 @@ signing_key: ` + key + `
 }
 
 func TestLoad_NormalisesURLs(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		yaml        string
@@ -157,6 +190,8 @@ func TestLoad_NormalisesURLs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cfg, err := Load(writeTemp(t, tt.yaml))
 			if err != nil {
 				t.Fatalf("Load: %v", err)
@@ -172,9 +207,13 @@ func TestLoad_NormalisesURLs(t *testing.T) {
 }
 
 func TestLoad_ResolvesStaticClaims(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "eve.svg"), []byte("<svg/>"), 0o600); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"eve.svg", "eve avatar.svg"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("<svg/>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	static := "static:\n  paths: { avatars: " + dir + " }\n"
 	eve := "personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars/eve.svg }\n"
@@ -208,11 +247,23 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 				"personas:\n  - claims: { sub: usr_eve, picture: hamnir://nope/eve.svg }\n",
 			"", ErrUnresolved,
 		},
+		{
+			"path traversal rejected", "issuer: http://hamnir:5556\n" + static +
+				"personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars/../eve.svg }\n",
+			"", ErrUnresolved,
+		},
+		{
+			"malformed ref rejected", "issuer: http://hamnir:5556\n" + static +
+				"personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars }\n",
+			"", ErrUnresolved,
+		},
 		{"ref without static block", "issuer: http://hamnir:5556\n" + eve, "", ErrUnresolved},
 		{"ref without base", static + eve, "", ErrNoBase},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cfg, err := Load(writeTemp(t, tt.yaml))
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -230,9 +281,8 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 	}
 
 	t.Run("special characters escaped", func(t *testing.T) {
-		if err := os.WriteFile(filepath.Join(dir, "eve avatar.svg"), []byte("<svg/>"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		t.Parallel()
+
 		cfg, err := Load(writeTemp(t, "issuer: http://hamnir:5556\n"+static+
 			"personas:\n  - claims: { sub: usr_eve, picture: 'hamnir://avatars/eve avatar.svg' }\n"))
 		if err != nil {
@@ -245,6 +295,8 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 	})
 
 	t.Run("nested value resolved", func(t *testing.T) {
+		t.Parallel()
+
 		cfg, err := Load(writeTemp(t, "issuer: http://hamnir:5556\n"+static+
 			"personas:\n  - claims: { sub: usr_eve, profile: { avatar: hamnir://avatars/eve.svg } }\n"))
 		if err != nil {
@@ -255,12 +307,30 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 			t.Errorf("nested avatar = %v", got)
 		}
 	})
+
+	t.Run("non-string claim preserved", func(t *testing.T) {
+		t.Parallel()
+
+		// Scalar claims that are not strings take rewriteValue's default branch
+		// and pass through untouched.
+		cfg, err := Load(writeTemp(t, "personas:\n  - claims: { sub: usr_eve, email_verified: true, age: 30 }\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got := cfg.Personas[0].Claims["email_verified"]; got != true {
+			t.Errorf("email_verified = %v, want true", got)
+		}
+	})
 }
 
 func TestLoad_Lifetimes(t *testing.T) {
+	t.Parallel()
+
 	persona := "personas:\n  - claims: { sub: s }\n"
 
 	t.Run("defaults when omitted", func(t *testing.T) {
+		t.Parallel()
+
 		cfg, err := Load(writeTemp(t, persona))
 		if err != nil {
 			t.Fatalf("Load: %v", err)
@@ -271,6 +341,8 @@ func TestLoad_Lifetimes(t *testing.T) {
 	})
 
 	t.Run("explicit values parsed", func(t *testing.T) {
+		t.Parallel()
+
 		cfg, err := Load(writeTemp(t, persona+
 			"lifetimes:\n  access_token: 90s\n  id_token: 2h\n  refresh_token: 720h\n"))
 		if err != nil {
@@ -283,6 +355,8 @@ func TestLoad_Lifetimes(t *testing.T) {
 	})
 
 	t.Run("partial config keeps other defaults", func(t *testing.T) {
+		t.Parallel()
+
 		cfg, err := Load(writeTemp(t, persona+"lifetimes:\n  access_token: 30s\n"))
 		if err != nil {
 			t.Fatalf("Load: %v", err)
@@ -296,6 +370,8 @@ func TestLoad_Lifetimes(t *testing.T) {
 	})
 
 	t.Run("negative rejected", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := Load(writeTemp(t, persona+"lifetimes:\n  id_token: -5m\n"))
 		if !errors.Is(err, errNegativeLifetime) {
 			t.Fatalf("Load = %v, want errNegativeLifetime", err)
@@ -303,6 +379,8 @@ func TestLoad_Lifetimes(t *testing.T) {
 	})
 
 	t.Run("malformed duration rejected", func(t *testing.T) {
+		t.Parallel()
+
 		if _, err := Load(writeTemp(t, persona+"lifetimes:\n  access_token: fast\n")); err == nil {
 			t.Fatal("Load accepted a malformed duration")
 		}
@@ -310,6 +388,8 @@ func TestLoad_Lifetimes(t *testing.T) {
 }
 
 func TestConfig_Validate_Clients(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		clients []Client
@@ -327,6 +407,8 @@ func TestConfig_Validate_Clients(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cfg := &Config{Clients: tt.clients, Personas: []Persona{{Claims: map[string]any{"sub": "s"}}}}
 			if err := cfg.Validate(); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Validate() err = %v, want %v", err, tt.wantErr)
@@ -336,6 +418,8 @@ func TestConfig_Validate_Clients(t *testing.T) {
 }
 
 func TestLoad_CollidingStaticMounts(t *testing.T) {
+	t.Parallel()
+
 	yaml := "static:\n  paths:\n    avatars: ./team\n    /avatars: ./customers\npersonas:\n  - claims: { sub: s }\n"
 	if _, err := Load(writeTemp(t, yaml)); !errors.Is(err, errDuplicateStaticMount) {
 		t.Fatalf("Load() err = %v, want errDuplicateStaticMount", err)
@@ -343,6 +427,8 @@ func TestLoad_CollidingStaticMounts(t *testing.T) {
 }
 
 func TestConfig_Validate_Static(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		static  Static
@@ -356,6 +442,8 @@ func TestConfig_Validate_Static(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cfg := &Config{Static: tt.static, Personas: []Persona{{Claims: map[string]any{"sub": "s"}}}}
 			err := cfg.Validate()
 			if !errors.Is(err, tt.wantErr) {
@@ -366,9 +454,13 @@ func TestConfig_Validate_Static(t *testing.T) {
 }
 
 func TestLoad_Audiences(t *testing.T) {
+	t.Parallel()
+
 	persona := "personas:\n  - claims: { sub: s }\n"
 
 	t.Run("parsed at both levels", func(t *testing.T) {
+		t.Parallel()
+
 		cfg, err := Load(writeTemp(t, persona+
 			"audiences: [https://api.example.test]\n"+
 			"clients:\n  - id: isen\n    audiences: [https://reports.example.test, urn:example:report]\n"))
@@ -384,6 +476,8 @@ func TestLoad_Audiences(t *testing.T) {
 	})
 
 	t.Run("absent stays nil, explicit empty stays non-nil", func(t *testing.T) {
+		t.Parallel()
+
 		cfg, err := Load(writeTemp(t, persona+
 			"clients:\n  - id: inherit\n  - id: optout\n    audiences: []\n"))
 		if err != nil {
@@ -409,6 +503,8 @@ func TestLoad_Audiences(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if _, err := Load(writeTemp(t, persona+tt.yaml)); !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Load = %v, want %v", err, tt.wantErr)
 			}
