@@ -1,5 +1,5 @@
 # https://taskfile.dev
-version: '3'
+version: "3"
 
 vars:
   BINARY: hamnir
@@ -46,8 +46,11 @@ tasks:
     desc: Run the full CI suite
     cmds:
       - task: build
-      - task: lint
-      - task: test
+      - cmd: |
+          rc=0
+          task test || rc=1
+          task lint || rc=1
+          exit $rc
 
   release-check:
     desc: Validate the goreleaser config
