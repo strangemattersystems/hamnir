@@ -1,3 +1,5 @@
+// Package config loads, normalises, and validates the hamnir server
+// configuration from YAML into a [Config] ready for the rest of the server.
 package config
 
 import (
@@ -10,6 +12,9 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+// Config is the fully parsed server configuration. A Config returned by [Load]
+// has been normalised and validated, its signing key decoded into Key, and its
+// static claim references resolved to absolute URLs.
 type Config struct {
 	Issuer     string              `yaml:"issuer"`
 	BrowserURL string              `yaml:"browser_url"`
@@ -26,6 +31,9 @@ type Config struct {
 	Key *rsa.PrivateKey `yaml:"-"`
 }
 
+// Static configures serving of persona assets. Prefix is the claim-value marker
+// (default "hamnir://") that [Load] rewrites to absolute URLs, and Paths maps
+// each mount name to a local directory.
 type Static struct {
 	Prefix string            `yaml:"prefix"`
 	Paths  map[string]string `yaml:"paths"`
@@ -47,6 +55,8 @@ var DefaultLifetimes = Lifetimes{
 	RefreshToken: 24 * time.Hour,
 }
 
+// Client is a registered OAuth client. With no clients configured hamnir runs
+// permissively, fabricating a client from each request instead.
 type Client struct {
 	ID                     string   `yaml:"id"`
 	RedirectURIs           []string `yaml:"redirect_uris"`
@@ -55,12 +65,15 @@ type Client struct {
 	Audiences              []string `yaml:"audiences"`
 }
 
+// Group labels and colours a set of personas in the picker UI.
 type Group struct {
 	ID     string `yaml:"id"`
 	Label  string `yaml:"label"`
 	Colour string `yaml:"colour"`
 }
 
+// Persona is a selectable test identity. Its Claims supply the identity's OIDC
+// claims, released into tokens subject to the requested scopes.
 type Persona struct {
 	Name        string         `yaml:"name"`
 	Description string         `yaml:"description"`
@@ -68,6 +81,10 @@ type Persona struct {
 	Claims      map[string]any `yaml:"claims"`
 }
 
+// Load reads the YAML config at path and returns a ready-to-use [Config]. It
+// parses with unknown fields rejected, normalises URLs and static mounts,
+// validates the result, decodes the signing key, and resolves hamnir:// static
+// claim references, so a nil error guarantees a fully usable config.
 func Load(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
