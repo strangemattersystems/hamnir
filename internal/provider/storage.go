@@ -289,10 +289,10 @@ func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
 }
 
 func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.Client, error) {
-	// Permissive mode: no configured clients, so accept any client_id as a
-	// public client using PKCE and accepting any redirect_uri.
+	// Permissive mode: no configured clients, so accept any client_id with a
+	// client shaped to match how the RP presented itself on this request.
 	if len(s.cfg.Clients) == 0 {
-		return permissiveClient(clientID), nil
+		return permissiveClient(clientID, presentationFrom(ctx)), nil
 	}
 	for _, c := range s.cfg.Clients {
 		if c.ID == clientID {
@@ -303,7 +303,7 @@ func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.
 }
 
 func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientSecret string) error {
-	// Permissive mode uses only public/PKCE clients; secret auth is not used.
+	// Permissive mode registers no secrets, so any presented secret is accepted.
 	if len(s.cfg.Clients) == 0 {
 		return nil
 	}

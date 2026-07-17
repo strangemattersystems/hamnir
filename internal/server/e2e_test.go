@@ -129,6 +129,123 @@ func TestEndToEnd(t *testing.T) {
 		}
 	})
 
+	// confidential client without pkce: permissive mode must accept the other
+	// standard client shape — client secret auth with no PKCE (any secret is
+	// accepted since none is registered).
+	t.Run("confidential client without pkce", func(t *testing.T) {
+		srv, client := newServer(t, aliceConfig())
+		ctx := oidc.ClientContext(context.Background(), client)
+		rp, err := oidc.NewProvider(ctx, srv.URL)
+		if err != nil {
+			t.Fatalf("discovery: %v", err)
+		}
+		oauthCfg := oauth2.Config{
+			ClientID:     "webapp",
+			ClientSecret: "any-secret",
+			Endpoint:     rp.Endpoint(),
+			RedirectURL:  "http://app.test/callback",
+			Scopes:       []string{oidc.ScopeOpenID, "email"},
+		}
+		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"))
+
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
+		if code == "" {
+			t.Fatal("expected an auth code")
+		}
+		tok, err := oauthCfg.Exchange(ctx, code)
+		if err != nil {
+			t.Fatalf("exchange with client secret and no PKCE: %v", err)
+		}
+		rawID, _ := tok.Extra("id_token").(string)
+		if rawID == "" {
+			t.Fatal("no id_token in token response")
+		}
+		if _, err := rp.Verifier(&oidc.Config{ClientID: "webapp"}).Verify(ctx, rawID); err != nil {
+			t.Fatalf("verify id_token: %v", err)
+		}
+	})
+
+	// unauthenticated exchange rejected: a client presenting neither a secret
+	// nor PKCE is non-conformant; real IdPs reject it, so hamnir does too.
+	t.Run("no secret and no pkce rejected", func(t *testing.T) {
+		srv, client := newServer(t, aliceConfig())
+		ctx := oidc.ClientContext(context.Background(), client)
+		rp, err := oidc.NewProvider(ctx, srv.URL)
+		if err != nil {
+			t.Fatalf("discovery: %v", err)
+		}
+		oauthCfg := oauth2.Config{
+			ClientID:    "webapp",
+			Endpoint:    rp.Endpoint(),
+			RedirectURL: "http://app.test/callback",
+			Scopes:      []string{oidc.ScopeOpenID},
+		}
+		authURL := oauthCfg.AuthCodeURL("state123")
+
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
+		if code == "" {
+			t.Fatal("expected an auth code")
+		}
+		if _, err := oauthCfg.Exchange(ctx, code); err == nil {
+			t.Fatal("expected exchange with neither secret nor PKCE to be rejected")
+		}
+	})
+
+	// logout redirect round-trip: permissive mode accepts any redirect_uri at
+	// login, so RP-initiated logout must honour post_logout_redirect_uri the
+	// same way, sending the browser back to the app with the state echoed.
+	t.Run("logout redirect round-trip", func(t *testing.T) {
+		srv, client := newServer(t, aliceConfig())
+		ctx := oidc.ClientContext(context.Background(), client)
+		rp, err := oidc.NewProvider(ctx, srv.URL)
+		if err != nil {
+			t.Fatalf("discovery: %v", err)
+		}
+		oauthCfg := oauth2.Config{
+			ClientID:    "isen",
+			Endpoint:    rp.Endpoint(),
+			RedirectURL: "http://app.test/callback",
+			Scopes:      []string{oidc.ScopeOpenID},
+		}
+		verifier := oauth2.GenerateVerifier()
+		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
+
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
+		if code == "" {
+			t.Fatal("expected an auth code")
+		}
+		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		rawID, _ := tok.Extra("id_token").(string)
+		if rawID == "" {
+			t.Fatal("no id_token in token response")
+		}
+
+		var disc struct {
+			EndSession string `json:"end_session_endpoint"`
+		}
+		if err := rp.Claims(&disc); err != nil {
+			t.Fatal(err)
+		}
+		logoutURL := disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID) +
+			"&post_logout_redirect_uri=" + url.QueryEscape("http://app.test/loggedout") +
+			"&state=st8"
+		resp, err := client.Get(logoutURL)
+		if err != nil {
+			t.Fatalf("logout: %v", err)
+		}
+		_ = resp.Body.Close()
+		loc, err := url.Parse(resp.Header.Get("Location"))
+		if err != nil || resp.StatusCode != http.StatusFound {
+			t.Fatalf("expected redirect to post_logout_redirect_uri, got %d %q", resp.StatusCode, resp.Header.Get("Location"))
+		}
+		if loc.Host != "app.test" || loc.Path != "/loggedout" || loc.Query().Get("state") != "st8" {
+			t.Fatalf("unexpected post-logout redirect: %s", loc)
+		}
+	})
+
 	// pkce mismatch: the token endpoint rejects a code exchange presenting the
 	// wrong PKCE verifier — proof that PKCE is enforced, not merely accepted.
 	t.Run("pkce mismatch", func(t *testing.T) {
@@ -147,7 +264,7 @@ func TestEndToEnd(t *testing.T) {
 		verifier := oauth2.GenerateVerifier()
 		authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL, "usr_alice"))
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
 		if code == "" {
 			t.Fatal("expected an auth code")
 		}
@@ -215,7 +332,7 @@ func TestEndToEnd(t *testing.T) {
 		verifier := oauth2.GenerateVerifier()
 		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL, "usr_alice"))
+		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
 		if code == "" {
 			t.Fatal("expected an auth code")
 		}
@@ -297,9 +414,9 @@ func newServer(t *testing.T, cfg *config.Config) (*httptest.Server, *http.Client
 }
 
 // authorizeAndSelect drives the authorize request to the picker, then posts the
-// persona selection, returning the resulting response (whose redirect carries the
-// authorization code).
-func authorizeAndSelect(t *testing.T, client *http.Client, srvURL, authURL, sub string) *http.Response {
+// selection of the Alice persona, returning the resulting response (whose
+// redirect carries the authorization code).
+func authorizeAndSelect(t *testing.T, client *http.Client, srvURL, authURL string) *http.Response {
 	t.Helper()
 	resp, err := client.Get(authURL)
 	if err != nil {
@@ -312,7 +429,7 @@ func authorizeAndSelect(t *testing.T, client *http.Client, srvURL, authURL, sub 
 	}
 	sel, err := client.PostForm(srvURL+"/login/select", url.Values{
 		"authRequestID": {authRequestID},
-		"sub":           {sub},
+		"sub":           {"usr_alice"},
 	})
 	if err != nil {
 		t.Fatalf("select: %v", err)

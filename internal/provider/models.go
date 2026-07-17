@@ -126,19 +126,33 @@ func (c *client) IsScopeAllowed(scope string) bool {
 	return true
 }
 
-// permissiveClient synthesizes a public, PKCE, dev-mode client that accepts any
-// redirect_uri. Used when no clients are configured.
-func permissiveClient(id string) *client {
+// permissiveClient synthesizes a dev-mode client that accepts any redirect_uri,
+// mirroring the RP's presentation on the current request: a presented client
+// secret makes it confidential (Basic — any secret is accepted since none is
+// registered), otherwise it is public and op requires PKCE, so a client using
+// neither is rejected just as a real IdP would. A requested post-logout
+// redirect is registered verbatim so RP-initiated logout round-trips. Used
+// when no clients are configured.
+func permissiveClient(id string, p presentation) *client {
+	authMethod := oidc.AuthMethodNone
+	if p.clientSecret {
+		authMethod = oidc.AuthMethodBasic
+	}
+	var postLogout []string
+	if p.postLogoutRedirectURI != "" {
+		postLogout = []string{p.postLogoutRedirectURI}
+	}
 	return &client{
-		id:              id,
-		redirectURIs:    nil,
-		applicationType: op.ApplicationTypeWeb,
-		authMethod:      oidc.AuthMethodNone,
-		grantTypes:      []oidc.GrantType{oidc.GrantTypeCode, oidc.GrantTypeRefreshToken},
-		responseTypes:   []oidc.ResponseType{oidc.ResponseTypeCode},
-		accessTokenType: op.AccessTokenTypeJWT,
-		devMode:         true,
-		redirectGlobs:   []string{"**"},
+		id:                     id,
+		redirectURIs:           nil,
+		postLogoutRedirectURIs: postLogout,
+		applicationType:        op.ApplicationTypeWeb,
+		authMethod:             authMethod,
+		grantTypes:             []oidc.GrantType{oidc.GrantTypeCode, oidc.GrantTypeRefreshToken},
+		responseTypes:          []oidc.ResponseType{oidc.ResponseTypeCode},
+		accessTokenType:        op.AccessTokenTypeJWT,
+		devMode:                true,
+		redirectGlobs:          []string{"**"},
 	}
 }
 
