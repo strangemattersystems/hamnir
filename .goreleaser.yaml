@@ -49,16 +49,16 @@ changelog:
   abbrev: -1
   groups:
     - title: Breaking changes
-      regexp: '^.*?[a-z]+(\(.+\))??!:.+$'
+      regexp: '^\S*\s?[a-zA-Z]+(\(.+\))?!:.+$'
       order: 0
     - title: Features
-      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      regexp: '^.*?feat(\(.+\))??:.+$'
       order: 1
     - title: Bug fixes
-      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      regexp: '^.*?fix(\(.+\))??:.+$'
       order: 2
     - title: Documentation
-      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      regexp: '^.*?docs(\(.+\))??:.+$'
       order: 3
     - title: Others
       order: 999
