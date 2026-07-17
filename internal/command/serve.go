@@ -37,6 +37,8 @@ func Serve(ctx context.Context, configPath, addr string) error {
 		Addr:              addr,
 		Handler:           h,
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	serveErr := make(chan error, 1)
