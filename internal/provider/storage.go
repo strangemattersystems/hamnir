@@ -48,10 +48,18 @@ type Storage struct {
 	signing  *signingKey
 
 	mu           sync.Mutex
-	authRequests map[string]*authRequest         // id -> request
-	codes        map[string]string               // authorization code -> request id
-	accessTokens map[string]*accessTokenInfo     // jti -> token metadata
-	sessions     map[string]map[string]time.Time // subject -> active sid -> login time
+	authRequests map[string]*authRequest       // id -> request
+	codes        map[string]string             // authorization code -> request id
+	accessTokens map[string]*accessTokenInfo   // jti -> token metadata
+	sessions     map[string]map[string]session // subject -> active sid -> session
+}
+
+// session records which client a sid was minted for and when a token carrying
+// it was last issued (login or refresh rotation), so termination can be scoped
+// per client and pruning tracks actual token liveness.
+type session struct {
+	clientID string
+	lastSeen time.Time
 }
 
 // accessTokenInfo is the metadata retained for a JWT access token so that the
@@ -83,7 +91,7 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 		authRequests: make(map[string]*authRequest),
 		codes:        make(map[string]string),
 		accessTokens: make(map[string]*accessTokenInfo),
-		sessions:     make(map[string]map[string]time.Time),
+		sessions:     make(map[string]map[string]session),
 	}, nil
 }
 
@@ -105,12 +113,12 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 	req.authTime = time.Now()
 	req.done = true
 
-	// Prune sids older than the refresh TTL: every token that could carry them
-	// has expired, so they only exist to bloat the map and slow logout.
+	// Prune sids not seen within the refresh TTL: lastSeen is refreshed on
+	// every rotation, so expiry here means no live token can carry the sid.
 	now := req.authTime
 	for subject, sids := range s.sessions {
-		for old, at := range sids {
-			if now.Sub(at) > refreshTokenTTL {
+		for old, sess := range sids {
+			if now.Sub(sess.lastSeen) > refreshTokenTTL {
 				delete(sids, old)
 			}
 		}
@@ -119,9 +127,9 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 		}
 	}
 	if s.sessions[sub] == nil {
-		s.sessions[sub] = make(map[string]time.Time)
+		s.sessions[sub] = make(map[string]session)
 	}
-	s.sessions[sub][sid] = req.authTime
+	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: req.authTime}
 	return nil
 }
 
@@ -226,14 +234,28 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	// Rotation: the refresh grant presented currentRefreshToken; now that its
-	// replacement exists, revoke the old token's jti so a replay is rejected.
-	if currentRefreshToken != "" {
-		if rc, err := s.refresh.Parse(currentRefreshToken); err == nil && rc.JTI != "" {
-			s.refresh.Revoke(rc.JTI)
-		}
+	// Rotation: the refresh grant presented currentRefreshToken (the very token
+	// this request was built from, so its jti is already on info). Revoke the
+	// replaced token and mark the session seen — the new token extends the
+	// session's life, so the prune horizon must move with it.
+	if currentRefreshToken != "" && info.JTI != "" {
+		s.refresh.Revoke(info.JTI)
+		s.touchSession(info)
 	}
 	return jti, rt, exp, nil
+}
+
+// touchSession upserts the session entry for a freshly rotated token. Upsert,
+// not update: the sid may have been pruned or lost to a restart, and rotation
+// proves the session is live, so re-registering it keeps logout able to
+// revoke it.
+func (s *Storage) touchSession(info TokenClaims) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessions[info.Sub] == nil {
+		s.sessions[info.Sub] = make(map[string]session)
+	}
+	s.sessions[info.Sub][info.SID] = session{clientID: info.ClientID, lastSeen: time.Now()}
 }
 
 func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration time.Time) {
@@ -261,19 +283,33 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	return &refreshRequest{TokenClaims: rc}, nil
 }
 
+// TerminateSession ends the user's sessions with the given client (op derives
+// clientID from the id_token_hint's azp). An empty clientID terminates all of
+// the subject's sessions.
 func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID string) error {
+	matches := func(c string) bool { return clientID == "" || c == clientID }
+
 	s.mu.Lock()
+	var revoke []string
 	sids := s.sessions[userID]
-	delete(s.sessions, userID)
-	// Drop access tokens issued to this user.
+	for sid, sess := range sids {
+		if matches(sess.clientID) {
+			delete(sids, sid)
+			revoke = append(revoke, sid)
+		}
+	}
+	if len(sids) == 0 {
+		delete(s.sessions, userID)
+	}
+	// Drop this client's access tokens for the user.
 	for jti, info := range s.accessTokens {
-		if info.Sub == userID {
+		if info.Sub == userID && matches(info.ClientID) {
 			delete(s.accessTokens, jti)
 		}
 	}
 	s.mu.Unlock()
 
-	for sid := range sids {
+	for _, sid := range revoke {
 		s.refresh.Revoke(sid)
 	}
 	return nil

@@ -83,8 +83,9 @@ func TestStorage_Eviction(t *testing.T) {
 		}
 		st.mu.Lock()
 		for _, sids := range st.sessions {
-			for sid := range sids {
-				sids[sid] = time.Now().Add(-refreshTokenTTL - time.Minute)
+			for sid, sess := range sids {
+				sess.lastSeen = time.Now().Add(-refreshTokenTTL - time.Minute)
+				sids[sid] = sess
 			}
 		}
 		st.mu.Unlock()
@@ -101,6 +102,134 @@ func TestStorage_Eviction(t *testing.T) {
 		st.mu.Unlock()
 		if n != 1 {
 			t.Fatalf("sids outliving every refresh token should be pruned; have %d, want 1", n)
+		}
+	})
+}
+
+// login drives an auth request for clientID through persona selection and
+// returns the freshly minted sid.
+func login(t *testing.T, st *Storage, clientID string) string {
+	t.Helper()
+	ctx := context.Background()
+	req, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: clientID}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AuthenticateAndComplete(req.GetID(), "usr_alice"); err != nil {
+		t.Fatal(err)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for sid, sess := range st.sessions["usr_alice"] {
+		if sess.clientID == clientID {
+			return sid
+		}
+	}
+	t.Fatalf("no session recorded for client %q", clientID)
+	return ""
+}
+
+// TestStorage_Sessions pins the session lifecycle: rotation keeps a session
+// alive past the login-time horizon, and logout only terminates the
+// requesting client's sessions.
+func TestStorage_Sessions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("rotation keeps the session alive", func(t *testing.T) {
+		st := newTestStorage(t)
+		sid := login(t, st, "isen")
+		rt, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}, SID: sid})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Age the session past the prune horizon, as if the RP had been
+		// silently refreshing for a day.
+		st.mu.Lock()
+		sess := st.sessions["usr_alice"][sid]
+		sess.lastSeen = time.Now().Add(-refreshTokenTTL - time.Minute)
+		st.sessions["usr_alice"][sid] = sess
+		st.mu.Unlock()
+
+		// A refresh grant rotates the token — the session is demonstrably live.
+		req, err := st.TokenRequestByRefreshToken(ctx, rt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, _, err := st.CreateAccessAndRefreshTokens(ctx, req.(*refreshRequest), rt); err != nil {
+			t.Fatal(err)
+		}
+
+		// Another login triggers the prune; the rotated session must survive
+		// so that logout can still revoke it.
+		login(t, st, "other")
+		st.mu.Lock()
+		_, ok := st.sessions["usr_alice"][sid]
+		st.mu.Unlock()
+		if !ok {
+			t.Fatal("session refreshed by rotation must not be pruned")
+		}
+	})
+
+	t.Run("logout terminates only the requesting client", func(t *testing.T) {
+		st := newTestStorage(t)
+		sidA := login(t, st, "app-a")
+		sidB := login(t, st, "app-b")
+		rtA, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sidA})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rtB, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-b", SID: sidB})
+		if err != nil {
+			t.Fatal(err)
+		}
+		jtiA, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sidA})
+		jtiB, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-b", SID: sidB})
+
+		if err := st.TerminateSession(ctx, "usr_alice", "app-a"); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := st.refresh.Parse(rtA); err == nil {
+			t.Fatal("app-a's refresh token should be revoked")
+		}
+		if _, err := st.refresh.Parse(rtB); err != nil {
+			t.Fatalf("app-b's refresh token should survive app-a's logout: %v", err)
+		}
+		st.mu.Lock()
+		_, aOK := st.accessTokens[jtiA]
+		_, bOK := st.accessTokens[jtiB]
+		st.mu.Unlock()
+		if aOK {
+			t.Fatal("app-a's access token should be deleted")
+		}
+		if !bOK {
+			t.Fatal("app-b's access token should survive app-a's logout")
+		}
+	})
+
+	t.Run("logout without a client terminates everything", func(t *testing.T) {
+		st := newTestStorage(t)
+		sidA := login(t, st, "app-a")
+		sidB := login(t, st, "app-b")
+		rtA, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sidA})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rtB, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-b", SID: sidB})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := st.TerminateSession(ctx, "usr_alice", ""); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := st.refresh.Parse(rtA); err == nil {
+			t.Fatal("app-a's refresh token should be revoked")
+		}
+		if _, err := st.refresh.Parse(rtB); err == nil {
+			t.Fatal("app-b's refresh token should be revoked")
 		}
 	})
 }
