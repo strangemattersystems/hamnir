@@ -60,21 +60,18 @@ func (a *authRequest) GetAMR() []string {
 // refreshRequest is hamnir's op.RefreshTokenRequest, rebuilt from a parsed
 // (self-contained) refresh token during the refresh grant.
 type refreshRequest struct {
-	subject  string
-	clientID string
-	scopes   []string
-	sid      string
+	TokenClaims
 }
 
 var _ op.RefreshTokenRequest = (*refreshRequest)(nil)
 
 func (r *refreshRequest) GetAMR() []string            { return []string{"pwd"} }
-func (r *refreshRequest) GetAudience() []string       { return []string{r.clientID} }
+func (r *refreshRequest) GetAudience() []string       { return []string{r.ClientID} }
 func (r *refreshRequest) GetAuthTime() time.Time      { return time.Time{} }
-func (r *refreshRequest) GetClientID() string         { return r.clientID }
-func (r *refreshRequest) GetScopes() []string         { return r.scopes }
-func (r *refreshRequest) GetSubject() string          { return r.subject }
-func (r *refreshRequest) SetCurrentScopes(s []string) { r.scopes = s }
+func (r *refreshRequest) GetClientID() string         { return r.ClientID }
+func (r *refreshRequest) GetScopes() []string         { return r.Scopes }
+func (r *refreshRequest) GetSubject() string          { return r.Sub }
+func (r *refreshRequest) SetCurrentScopes(s []string) { r.Scopes = s }
 
 // client is hamnir's op.Client. It implements op.HasRedirectGlobs so permissive
 // mode can accept any redirect_uri via a "**" glob; strict clients leave the

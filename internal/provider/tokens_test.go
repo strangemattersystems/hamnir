@@ -22,7 +22,7 @@ func TestRefreshTokenManager(t *testing.T) {
 	}
 
 	t.Run("round trip", func(t *testing.T) {
-		tok, err := m.Issue(RefreshClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid", "roles"}, SID: "sid1"})
+		tok, err := m.Issue(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid", "roles"}, SID: "sid1"})
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
@@ -40,7 +40,7 @@ func TestRefreshTokenManager(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		tok, err := expired.Issue(RefreshClaims{Sub: "s", SID: "x"})
+		tok, err := expired.Issue(TokenClaims{Sub: "s", SID: "x"})
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
@@ -58,7 +58,7 @@ func TestRefreshTokenManager(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		tok, err := otherM.Issue(RefreshClaims{Sub: "s", SID: "x"})
+		tok, err := otherM.Issue(TokenClaims{Sub: "s", SID: "x"})
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
@@ -68,7 +68,7 @@ func TestRefreshTokenManager(t *testing.T) {
 	})
 
 	t.Run("rejects revoked session", func(t *testing.T) {
-		tok, err := m.Issue(RefreshClaims{Sub: "s", SID: "sid-revoked"})
+		tok, err := m.Issue(TokenClaims{Sub: "s", SID: "sid-revoked"})
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
@@ -79,7 +79,7 @@ func TestRefreshTokenManager(t *testing.T) {
 	})
 
 	t.Run("issues unique tokens for identical claims", func(t *testing.T) {
-		rc := RefreshClaims{Sub: "s", SID: "sid-uniq"}
+		rc := TokenClaims{Sub: "s", SID: "sid-uniq"}
 		a, err := m.Issue(rc)
 		if err != nil {
 			t.Fatalf("issue: %v", err)
@@ -94,7 +94,7 @@ func TestRefreshTokenManager(t *testing.T) {
 	})
 
 	t.Run("rejects revoked token id", func(t *testing.T) {
-		tok, err := m.Issue(RefreshClaims{Sub: "s", SID: "sid-jti"})
+		tok, err := m.Issue(TokenClaims{Sub: "s", SID: "sid-jti"})
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
@@ -110,7 +110,7 @@ func TestRefreshTokenManager(t *testing.T) {
 			t.Fatalf("want errRevokedToken, got %v", err)
 		}
 		// Other tokens in the same session stay valid.
-		other, err := m.Issue(RefreshClaims{Sub: "s", SID: "sid-jti"})
+		other, err := m.Issue(TokenClaims{Sub: "s", SID: "sid-jti"})
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
@@ -120,7 +120,7 @@ func TestRefreshTokenManager(t *testing.T) {
 	})
 
 	t.Run("refuses to issue without a session id", func(t *testing.T) {
-		if _, err := m.Issue(RefreshClaims{Sub: "s"}); !errors.Is(err, errMissingSID) {
+		if _, err := m.Issue(TokenClaims{Sub: "s"}); !errors.Is(err, errMissingSID) {
 			t.Fatalf("want errMissingSID, got %v", err)
 		}
 	})

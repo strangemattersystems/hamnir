@@ -54,9 +54,7 @@ type Storage struct {
 // accessTokenInfo is the metadata retained for a JWT access token so that the
 // userinfo and introspection endpoints can resolve claims from the token's jti.
 type accessTokenInfo struct {
-	subject    string
-	clientID   string
-	scopes     []string
+	TokenClaims
 	expiration time.Time
 }
 
@@ -192,12 +190,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	// hamnir issues refresh tokens by default (not gated on offline_access).
 	// Tokens are self-contained JWTs; a refresh request rotates to a fresh token
 	// carrying the same session id, which remains subject to sid revocation.
-	rt, err := s.refresh.Issue(RefreshClaims{
-		Sub:      info.subject,
-		ClientID: info.clientID,
-		Scopes:   info.scopes,
-		SID:      info.sid,
-	})
+	rt, err := s.refresh.Issue(info)
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -211,16 +204,11 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	return jti, rt, exp, nil
 }
 
-func (s *Storage) storeAccessToken(info tokenInfo) (jti string, expiration time.Time) {
+func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration time.Time) {
 	jti = randID()
 	exp := time.Now().Add(accessTokenLifetime)
 	s.mu.Lock()
-	s.accessTokens[jti] = &accessTokenInfo{
-		subject:    info.subject,
-		clientID:   info.clientID,
-		scopes:     info.scopes,
-		expiration: exp,
-	}
+	s.accessTokens[jti] = &accessTokenInfo{TokenClaims: info, expiration: exp}
 	s.mu.Unlock()
 	return jti, exp
 }
@@ -231,12 +219,7 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	if err != nil {
 		return nil, err
 	}
-	return &refreshRequest{
-		subject:  rc.Sub,
-		clientID: rc.ClientID,
-		scopes:   rc.Scopes,
-		sid:      rc.SID,
-	}, nil
+	return &refreshRequest{TokenClaims: rc}, nil
 }
 
 func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID string) error {
@@ -245,7 +228,7 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 	delete(s.sessions, userID)
 	// Drop access tokens issued to this user.
 	for jti, info := range s.accessTokens {
-		if info.subject == userID {
+		if info.Sub == userID {
 			delete(s.accessTokens, jti)
 		}
 	}
@@ -353,7 +336,7 @@ func (s *Storage) SetUserinfoFromToken(ctx context.Context, userinfo *oidc.UserI
 	if !ok || info.expiration.Before(time.Now()) {
 		return errors.New("token is invalid or has expired")
 	}
-	s.setUserinfo(userinfo, subject, info.scopes)
+	s.setUserinfo(userinfo, subject, info.Scopes)
 	return nil
 }
 
@@ -365,39 +348,40 @@ func (s *Storage) SetIntrospectionFromToken(ctx context.Context, introspection *
 		return errors.New("token is invalid or has expired")
 	}
 	userInfo := new(oidc.UserInfo)
-	s.setUserinfo(userInfo, subject, info.scopes)
+	s.setUserinfo(userInfo, subject, info.Scopes)
 	introspection.SetUserInfo(userInfo)
-	introspection.Scope = info.scopes
-	introspection.ClientID = info.clientID
+	introspection.Scope = info.Scopes
+	introspection.ClientID = info.ClientID
 	introspection.Expiration = oidc.FromTime(info.expiration)
 	return nil
 }
 
 func (s *Storage) GetPrivateClaimsFromScopes(ctx context.Context, userID, clientID string, scopes []string) (map[string]any, error) {
-	p, ok := s.personas.BySub(userID)
-	if !ok {
-		return nil, nil
-	}
-	released := persona.ReleaseClaims(p.Claims, scopes, s.cfg.Scopes)
-	delete(released, "sub") // sub is asserted as the registered subject claim
+	released := s.releasedClaims(userID, scopes)
 	if len(released) == 0 {
 		return nil, nil
 	}
 	return released, nil
 }
 
+// releasedClaims returns the subject's persona claims released for scopes,
+// minus the reserved sub claim, which is always asserted as the registered
+// subject claim instead. Nil when the subject matches no persona.
+func (s *Storage) releasedClaims(subject string, scopes []string) map[string]any {
+	p, ok := s.personas.BySub(subject)
+	if !ok {
+		return nil
+	}
+	released := persona.ReleaseClaims(p.Claims, scopes, s.cfg.Scopes)
+	delete(released, "sub")
+	return released
+}
+
 // setUserinfo resolves the persona for subject and copies its released claims
 // (gated by scope) onto the userinfo object.
 func (s *Storage) setUserinfo(userinfo *oidc.UserInfo, subject string, scopes []string) {
 	userinfo.Subject = subject
-	p, ok := s.personas.BySub(subject)
-	if !ok {
-		return
-	}
-	for k, v := range persona.ReleaseClaims(p.Claims, scopes, s.cfg.Scopes) {
-		if k == "sub" {
-			continue
-		}
+	for k, v := range s.releasedClaims(subject, scopes) {
 		userinfo.AppendClaims(k, v)
 	}
 }
@@ -412,24 +396,16 @@ func (s *Storage) ValidateJWTProfileScopes(ctx context.Context, userID string, s
 
 func (s *Storage) Health(ctx context.Context) error { return nil }
 
-// tokenInfo is the request data needed to mint access and refresh tokens.
-type tokenInfo struct {
-	subject  string
-	clientID string
-	sid      string
-	scopes   []string
-}
-
-// requestInfo extracts token data from the concrete op.TokenRequest types
-// hamnir produces (auth-code flow and refresh flow).
-func requestInfo(req op.TokenRequest) tokenInfo {
+// requestInfo extracts the token claims from the concrete op.TokenRequest
+// types hamnir produces (auth-code flow and refresh flow).
+func requestInfo(req op.TokenRequest) TokenClaims {
 	switch r := req.(type) {
 	case *authRequest:
-		return tokenInfo{subject: r.subject, clientID: r.clientID, sid: r.sid, scopes: r.scopes}
+		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes}
 	case *refreshRequest:
-		return tokenInfo{subject: r.subject, clientID: r.clientID, sid: r.sid, scopes: r.scopes}
+		return r.TokenClaims
 	default:
-		return tokenInfo{subject: req.GetSubject(), scopes: req.GetScopes()}
+		return TokenClaims{Sub: req.GetSubject(), Scopes: req.GetScopes()}
 	}
 }
 

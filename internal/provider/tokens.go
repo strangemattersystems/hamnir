@@ -18,7 +18,7 @@ var (
 
 const defaultRefreshAudience = "hamnir"
 
-type RefreshClaims struct {
+type TokenClaims struct {
 	Sub      string
 	ClientID string
 	Scopes   []string
@@ -59,7 +59,7 @@ func NewRefreshTokenManager(key *rsa.PrivateKey, ttl time.Duration, audience str
 	}, nil
 }
 
-func (m *RefreshTokenManager) Issue(rc RefreshClaims) (string, error) {
+func (m *RefreshTokenManager) Issue(rc TokenClaims) (string, error) {
 	if rc.SID == "" {
 		return "", errMissingSID
 	}
@@ -77,33 +77,33 @@ func (m *RefreshTokenManager) Issue(rc RefreshClaims) (string, error) {
 	return jwt.Signed(m.signer).Claims(registered).Claims(private).Serialize()
 }
 
-func (m *RefreshTokenManager) Parse(token string) (RefreshClaims, error) {
+func (m *RefreshTokenManager) Parse(token string) (TokenClaims, error) {
 	parsed, err := jwt.ParseSigned(token, []jose.SignatureAlgorithm{jose.RS256})
 	if err != nil {
-		return RefreshClaims{}, err
+		return TokenClaims{}, err
 	}
 	var registered jwt.Claims
 	var private refreshTokenClaims
 	if err := parsed.Claims(m.pub, &registered, &private); err != nil {
-		return RefreshClaims{}, err
+		return TokenClaims{}, err
 	}
 	if err := registered.Validate(jwt.Expected{
 		Issuer:      m.audience,
 		AnyAudience: jwt.Audience{m.audience},
 		Time:        time.Now(),
 	}); err != nil {
-		return RefreshClaims{}, err
+		return TokenClaims{}, err
 	}
 	if private.SID == "" {
-		return RefreshClaims{}, errMissingSID
+		return TokenClaims{}, errMissingSID
 	}
 	if m.isRevoked(private.SID) {
-		return RefreshClaims{}, errRevokedSession
+		return TokenClaims{}, errRevokedSession
 	}
 	if registered.ID != "" && m.isRevoked(registered.ID) {
-		return RefreshClaims{}, errRevokedToken
+		return TokenClaims{}, errRevokedToken
 	}
-	return RefreshClaims{
+	return TokenClaims{
 		Sub:      registered.Subject,
 		ClientID: private.ClientID,
 		Scopes:   private.Scopes,
