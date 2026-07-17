@@ -36,6 +36,11 @@
         "items": { "type": "string" }
       }
     },
+    "audiences": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Values for the aud claim of minted access tokens (API identifiers, URLs or URNs). Replaces the default [client_id]; list the client id explicitly if you want both. A client may override this with its own audiences list. Note: the ID token also receives these audiences, with the client_id always appended — spec-legal, but broader than Auth0/Azure ID tokens. Omit for the default aud of [client_id]."
+    },
     "personas": {
       "type": "array",
       "description": "The selectable identities shown in the persona picker.",
@@ -106,6 +111,11 @@
         "secret": {
           "type": "string",
           "description": "Client secret. Omit for a public client that authenticates with PKCE."
+        },
+        "audiences": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Per-client override of the top-level audiences list for this client's tokens. An explicit empty list opts this client out of the global audiences, back to the default aud of [client_id]. Omit to inherit the global list."
         }
       }
     },

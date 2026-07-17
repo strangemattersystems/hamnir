@@ -14,6 +14,10 @@ static:
   paths:
     avatars: /etc/hamnir/avatars
 
+# aud claim for access tokens (and, with the client id appended, id tokens).
+# Set this to your API's identifier if your middleware validates audience.
+audiences: [https://api.example.test]
+
 # Registering the web app as a client puts hamnir in strict mode: only these exact
 # redirect URIs are accepted. Delete this block to run in permissive dev mode
 # (any client_id and redirect_uri). The app has no secret, so it is a public

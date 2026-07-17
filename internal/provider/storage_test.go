@@ -544,3 +544,76 @@ func TestNewStorage_ConfiguredLifetimes(t *testing.T) {
 		}
 	})
 }
+
+func TestStorage_AudienceFor(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Audiences: []string{"https://api.example.test"},
+		Clients: []config.Client{
+			{ID: "inherit"},
+			{ID: "override", Audiences: []string{"urn:example:report"}},
+			{ID: "optout", Audiences: []string{}},
+		},
+		Personas:  []config.Persona{{Claims: map[string]any{"sub": "usr_alice"}}},
+		Lifetimes: config.DefaultLifetimes,
+	}
+	st, err := NewStorage(cfg, persona.NewSet(cfg), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		clientID string
+		want     []string
+	}{
+		{"client inherits global", "inherit", []string{"https://api.example.test"}},
+		{"client override wins", "override", []string{"urn:example:report"}},
+		{"explicit empty opts out", "optout", nil},
+		{"unknown client gets global", "permissive-anything", []string{"https://api.example.test"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := st.audienceFor(tt.clientID)
+			if len(got) != len(tt.want) {
+				t.Fatalf("audienceFor(%q) = %v, want %v", tt.clientID, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("audienceFor(%q) = %v, want %v", tt.clientID, got, tt.want)
+				}
+			}
+		})
+	}
+
+	t.Run("nothing configured resolves nil", func(t *testing.T) {
+		st := newTestStorage(t) // its cfg has no audiences anywhere
+		if got := st.audienceFor("any"); got != nil {
+			t.Fatalf("audienceFor = %v, want nil", got)
+		}
+	})
+
+	t.Run("flows into auth request aud", func(t *testing.T) {
+		req, err := st.CreateAuthRequest(t.Context(), &oidc.AuthRequest{ClientID: "override"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := req.GetAudience(); len(got) != 1 || got[0] != "urn:example:report" {
+			t.Fatalf("GetAudience = %v, want [urn:example:report]", got)
+		}
+	})
+
+	t.Run("default aud unchanged without config", func(t *testing.T) {
+		st := newTestStorage(t)
+		req, err := st.CreateAuthRequest(t.Context(), &oidc.AuthRequest{ClientID: "c"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := req.GetAudience(); len(got) != 1 || got[0] != "c" {
+			t.Fatalf("GetAudience = %v, want [c]", got)
+		}
+	})
+}

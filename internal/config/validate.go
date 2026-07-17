@@ -25,6 +25,8 @@ var (
 	errEmptyClientID         = errors.New("empty client id")
 	errDuplicateClientID     = errors.New("duplicate client id")
 	errNegativeLifetime      = errors.New("negative lifetime")
+	errEmptyAudience         = errors.New("empty audience")
+	errDuplicateAudience     = errors.New("duplicate audience")
 )
 
 var hexColour = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
@@ -42,6 +44,13 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("client %q: %w", cl.ID, errDuplicateClientID)
 		}
 		clientIDs[cl.ID] = true
+		if err := validateAudiences(cl.Audiences); err != nil {
+			return fmt.Errorf("client %q: audiences: %w", cl.ID, err)
+		}
+	}
+
+	if err := validateAudiences(c.Audiences); err != nil {
+		return fmt.Errorf("audiences: %w", err)
 	}
 
 	groupIDs := map[string]bool{}
@@ -117,6 +126,20 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+func validateAudiences(list []string) error {
+	seen := map[string]bool{}
+	for _, a := range list {
+		if a == "" {
+			return errEmptyAudience
+		}
+		if seen[a] {
+			return fmt.Errorf("%q: %w", a, errDuplicateAudience)
+		}
+		seen[a] = true
+	}
 	return nil
 }
 

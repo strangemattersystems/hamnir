@@ -364,3 +364,54 @@ func TestConfig_Validate_Static(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_Audiences(t *testing.T) {
+	persona := "personas:\n  - claims: { sub: s }\n"
+
+	t.Run("parsed at both levels", func(t *testing.T) {
+		cfg, err := Load(writeTemp(t, persona+
+			"audiences: [https://api.example.test]\n"+
+			"clients:\n  - id: isen\n    audiences: [https://reports.example.test, urn:example:report]\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if len(cfg.Audiences) != 1 || cfg.Audiences[0] != "https://api.example.test" {
+			t.Errorf("Audiences = %v", cfg.Audiences)
+		}
+		if len(cfg.Clients[0].Audiences) != 2 {
+			t.Errorf("client Audiences = %v", cfg.Clients[0].Audiences)
+		}
+	})
+
+	t.Run("absent stays nil, explicit empty stays non-nil", func(t *testing.T) {
+		cfg, err := Load(writeTemp(t, persona+
+			"clients:\n  - id: inherit\n  - id: optout\n    audiences: []\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.Clients[0].Audiences != nil {
+			t.Errorf("absent field decoded non-nil: %v", cfg.Clients[0].Audiences)
+		}
+		if cfg.Clients[1].Audiences == nil {
+			t.Error("explicit [] decoded as nil — opt-out is indistinguishable from inherit")
+		}
+	})
+
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr error
+	}{
+		{"empty global entry", "audiences: [\"\"]\n", errEmptyAudience},
+		{"duplicate global entry", "audiences: [a, a]\n", errDuplicateAudience},
+		{"empty client entry", "clients:\n  - id: c\n    audiences: [\"\"]\n", errEmptyAudience},
+		{"duplicate client entry", "clients:\n  - id: c\n    audiences: [a, a]\n", errDuplicateAudience},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := Load(writeTemp(t, persona+tt.yaml)); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Load = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}

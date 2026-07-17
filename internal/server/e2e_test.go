@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -312,6 +315,43 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("userinfo after logout should be rejected, got 200: %s", readBody(t, resp))
 		}
 	})
+
+	// A configured audience must reach the access token's aud verbatim, and the
+	// id_token's aud must contain both it and the client_id (op appends the
+	// client; spec-legal, deliberate).
+	t.Run("configured audience", func(t *testing.T) {
+		cfg := aliceConfig()
+		cfg.Audiences = []string{"https://api.example.test"}
+		e := discover(t, cfg)
+		oauthCfg := e.app("some-client", "")
+		verifier := oauth2.GenerateVerifier()
+		code := e.obtainCode(t, oauthCfg, oauth2.S256ChallengeOption(verifier))
+
+		tok, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(verifier))
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+
+		// Access token: aud is exactly the configured list (client_id replaced).
+		var atClaims struct {
+			Aud any `json:"aud"`
+		}
+		decodeJWTPayload(t, tok.AccessToken, &atClaims)
+		if aud := audSlice(atClaims.Aud); len(aud) != 1 || aud[0] != "https://api.example.test" {
+			t.Fatalf("access token aud = %v, want [https://api.example.test]", aud)
+		}
+
+		// ID token: aud contains the configured audience AND the client_id.
+		rawID, _ := tok.Extra("id_token").(string)
+		var idClaims struct {
+			Aud any `json:"aud"`
+		}
+		decodeJWTPayload(t, rawID, &idClaims)
+		aud := audSlice(idClaims.Aud)
+		if !slices.Contains(aud, "https://api.example.test") || !slices.Contains(aud, "some-client") {
+			t.Fatalf("id token aud = %v, want configured audience and client_id", aud)
+		}
+	})
 }
 
 // aliceConfig is the minimal permissive-mode config used across the end-to-end
@@ -467,4 +507,39 @@ func codeFrom(resp *http.Response) string {
 		}
 	}
 	return resp.Request.URL.Query().Get("code")
+}
+
+// decodeJWTPayload unmarshals a JWT's payload segment without verification —
+// these tests assert claim contents, not signatures.
+func decodeJWTPayload(t *testing.T, raw string, into any) {
+	t.Helper()
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		t.Fatalf("not a JWT: %d segments", len(parts))
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(payload, into); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// audSlice normalises the aud claim, which JSON may carry as a string or an
+// array of strings.
+func audSlice(v any) []string {
+	switch a := v.(type) {
+	case string:
+		return []string{a}
+	case []any:
+		out := make([]string, 0, len(a))
+		for _, e := range a {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
