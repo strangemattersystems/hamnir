@@ -27,6 +27,8 @@ func ecKeyB64(t *testing.T) string {
 }
 
 func TestGenerateSigningKey(t *testing.T) {
+	t.Parallel()
+
 	encoded, err := GenerateSigningKey()
 	if err != nil {
 		t.Fatalf("GenerateSigningKey: %v", err)
@@ -44,6 +46,8 @@ func TestGenerateSigningKey(t *testing.T) {
 }
 
 func TestConfig_parseSigningKey(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		value   string
@@ -55,6 +59,8 @@ func TestConfig_parseSigningKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if tt.name == "PKCS#8 but not RSA" {
 				tt.value = ecKeyB64(t)
 			}
@@ -66,6 +72,8 @@ func TestConfig_parseSigningKey(t *testing.T) {
 	}
 
 	t.Run("missing key", func(t *testing.T) {
+		t.Parallel()
+
 		cfg := &Config{}
 		if err := cfg.parseSigningKey(); !errors.Is(err, errMissingSigningKey) {
 			t.Fatalf("parseSigningKey() = %v, want errMissingSigningKey", err)
@@ -74,6 +82,8 @@ func TestConfig_parseSigningKey(t *testing.T) {
 }
 
 func TestLoad_SigningKey(t *testing.T) {
+	t.Parallel()
+
 	encoded, err := GenerateSigningKey()
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +97,8 @@ func TestLoad_SigningKey(t *testing.T) {
 	}
 
 	t.Run("reflowed value tolerated", func(t *testing.T) {
+		t.Parallel()
+
 		// A folded scalar reflows the one-line value across lines; YAML turns
 		// the breaks into spaces, which the decoder must strip.
 		mid := len(encoded) / 2
@@ -101,6 +113,8 @@ func TestLoad_SigningKey(t *testing.T) {
 	})
 
 	t.Run("invalid key surfaces from Load", func(t *testing.T) {
+		t.Parallel()
+
 		_, err := Load(writeTemp(t, "personas:\n  - claims: { sub: s }\nsigning_key: not!!base64\n"))
 		if !errors.Is(err, errInvalidSigningKey) {
 			t.Fatalf("Load = %v, want errInvalidSigningKey", err)
@@ -108,6 +122,8 @@ func TestLoad_SigningKey(t *testing.T) {
 	})
 
 	t.Run("missing key surfaces from Load", func(t *testing.T) {
+		t.Parallel()
+
 		p := filepath.Join(t.TempDir(), "hamnir.yaml")
 		if err := os.WriteFile(p, []byte("personas:\n  - claims: { sub: s }\n"), 0o600); err != nil {
 			t.Fatal(err)

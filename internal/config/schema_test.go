@@ -13,6 +13,8 @@ import (
 // the Go config structs: with additionalProperties:false in the schema, any
 // yaml key parsed here but missing there makes editors flag valid configs.
 func TestSchemaCoversConfig(t *testing.T) {
+	t.Parallel()
+
 	raw, err := os.ReadFile(filepath.Join("..", "..", "api", "hamnir.schema.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -45,6 +47,8 @@ func TestSchemaCoversConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if len(tt.schema) == 0 {
 				t.Fatal("schema section missing or empty")
 			}

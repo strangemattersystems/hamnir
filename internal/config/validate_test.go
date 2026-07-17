@@ -6,6 +6,8 @@ import (
 )
 
 func TestConfig_Validate(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		cfg     *Config
@@ -58,6 +60,8 @@ func TestConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := tt.cfg.Validate()
 			if tt.wantErr == nil {
 				if err != nil {
@@ -73,6 +77,8 @@ func TestConfig_Validate(t *testing.T) {
 }
 
 func TestConfig_Validate_BrowserURL(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		cfg  Config
@@ -85,6 +91,8 @@ func TestConfig_Validate_BrowserURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if err := tt.cfg.Validate(); !errors.Is(err, tt.want) {
 				t.Fatalf("Validate() = %v, want %v", err, tt.want)
 			}
