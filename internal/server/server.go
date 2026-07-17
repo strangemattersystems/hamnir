@@ -1,3 +1,5 @@
+// Package server wires the OpenID provider, the persona picker, and static
+// asset serving into a single http.Handler.
 package server
 
 import (
