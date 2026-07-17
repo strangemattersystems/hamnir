@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
+	"github.com/zitadel/oidc/v3/pkg/op"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
 	"github.com/strangemattersystems/hamnir/internal/persona"
@@ -427,6 +428,35 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 			t.Fatal("an hour-old picker must still complete; only abandoned flows may be evicted")
 		}
 	})
+
+	t.Run("unknown request cannot be completed", func(t *testing.T) {
+		st := newTestStorage(t)
+		if err := st.AuthenticateAndComplete("ghost", "usr_alice"); !errors.Is(err, ErrAuthRequestNotFound) {
+			t.Fatalf("want ErrAuthRequestNotFound, got %v", err)
+		}
+	})
+
+	t.Run("unknown request cannot save a code", func(t *testing.T) {
+		st := newTestStorage(t)
+		if err := st.SaveAuthCode(ctx, "ghost", "code"); !errors.Is(err, ErrAuthRequestNotFound) {
+			t.Fatalf("want ErrAuthRequestNotFound, got %v", err)
+		}
+	})
+
+	t.Run("an unissued code is not exchangeable", func(t *testing.T) {
+		st := newTestStorage(t)
+		if _, err := st.AuthRequestByCode(ctx, "never-issued"); err == nil {
+			t.Fatal("an unissued code must not resolve")
+		}
+	})
+
+	t.Run("prompt=none is refused", func(t *testing.T) {
+		st := newTestStorage(t)
+		req := &oidc.AuthRequest{ClientID: "c", Prompt: oidc.SpaceDelimitedArray{oidc.PromptNone}}
+		if _, err := st.CreateAuthRequest(ctx, req, ""); !errors.Is(err, oidc.ErrLoginRequired()) {
+			t.Fatalf("want ErrLoginRequired, got %v", err)
+		}
+	})
 }
 
 // TestStorage_Revocation pins RFC 7009 semantics: only the client a token was
@@ -512,6 +542,91 @@ func TestStorage_Revocation(t *testing.T) {
 		}
 		if _, err := st.refresh.Parse(sibling); !errors.Is(err, errRevokedSession) {
 			t.Fatalf("the whole session should be revoked, got %v", err)
+		}
+	})
+
+	t.Run("own access token is revoked", func(t *testing.T) {
+		st := newTestStorage(t)
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a"})
+		if oidcErr := st.RevokeToken(ctx, jti, "usr_alice", "app-a"); oidcErr != nil {
+			t.Fatalf("own access-token revocation should succeed: %v", oidcErr)
+		}
+		st.mu.Lock()
+		_, ok := st.accessTokens[jti]
+		st.mu.Unlock()
+		if ok {
+			t.Fatal("a revoked access token must be deleted")
+		}
+	})
+
+	t.Run("garbage token does not resolve for revocation", func(t *testing.T) {
+		st := newTestStorage(t)
+		if _, _, err := st.GetRefreshTokenInfo(ctx, "app-a", "not-a-jwt"); !errors.Is(err, op.ErrInvalidRefreshToken) {
+			t.Fatalf("want op.ErrInvalidRefreshToken, got %v", err)
+		}
+	})
+
+	t.Run("raw refresh token revokes its own session", func(t *testing.T) {
+		// op usually resolves a session id via GetRefreshTokenInfo first, but a
+		// raw refresh JWT presented for its own client must revoke too.
+		st := newTestStorage(t)
+		sid := login(t, st, "app-a")
+		rt, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sid})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if oidcErr := st.RevokeToken(ctx, rt, "usr_alice", "app-a"); oidcErr != nil {
+			t.Fatalf("own raw-token revocation should succeed: %v", oidcErr)
+		}
+		if _, err := st.refresh.Parse(rt); !errors.Is(err, errRevokedSession) {
+			t.Fatalf("want errRevokedSession after revocation, got %v", err)
+		}
+	})
+}
+
+// TestStorage_SetIntrospectionFromToken pins the introspection endpoint's view
+// of an access token: an active token reports its client, subject and scopes;
+// an unknown or expired token is rejected.
+func TestStorage_SetIntrospectionFromToken(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("active token populates the response", func(t *testing.T) {
+		st := newTestStorage(t)
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
+
+		var resp oidc.IntrospectionResponse
+		if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "isen"); err != nil {
+			t.Fatalf("SetIntrospectionFromToken: %v", err)
+		}
+		if resp.ClientID != "isen" {
+			t.Errorf("ClientID = %q, want isen", resp.ClientID)
+		}
+		if resp.Subject != "usr_alice" {
+			t.Errorf("Subject = %q, want usr_alice", resp.Subject)
+		}
+		if len(resp.Scope) != 1 || resp.Scope[0] != "openid" {
+			t.Errorf("Scope = %v, want [openid]", resp.Scope)
+		}
+	})
+
+	t.Run("unknown token is rejected", func(t *testing.T) {
+		st := newTestStorage(t)
+		var resp oidc.IntrospectionResponse
+		if err := st.SetIntrospectionFromToken(ctx, &resp, "no-such-jti", "usr_alice", "isen"); err == nil {
+			t.Fatal("an unknown token must not introspect")
+		}
+	})
+
+	t.Run("expired token is rejected", func(t *testing.T) {
+		st := newTestStorage(t)
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
+		st.mu.Lock()
+		st.accessTokens[jti].expiration = time.Now().Add(-time.Minute)
+		st.mu.Unlock()
+
+		var resp oidc.IntrospectionResponse
+		if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "isen"); err == nil {
+			t.Fatal("an expired token must not introspect")
 		}
 	})
 }
@@ -620,7 +735,7 @@ func TestStorage_GetClientByClientID(t *testing.T) {
 func TestStorage_AuthorizeClientIDSecret(t *testing.T) {
 	ctx := context.Background()
 	st := newStorageWithClients(t,
-		config.Client{ID: "public"},                        // no secret: public, PKCE only
+		config.Client{ID: "public"},                         // no secret: public, PKCE only
 		config.Client{ID: "confidential", Secret: "s3cret"}, // confidential
 	)
 
