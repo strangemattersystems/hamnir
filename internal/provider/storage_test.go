@@ -49,6 +49,26 @@ func newTestStorageWithLifetimes(t *testing.T, lt config.Lifetimes) *Storage {
 	return st
 }
 
+// newStorageWithClients is newTestStorage with configured clients, so lookups
+// exercise strict (non-permissive) mode.
+func newStorageWithClients(t *testing.T, clients ...config.Client) *Storage {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Clients:   clients,
+		Personas:  []config.Persona{{Claims: map[string]any{"sub": "usr_alice"}}},
+		Lifetimes: config.DefaultLifetimes,
+	}
+	st, err := NewStorage(cfg, persona.NewSet(cfg), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
 func TestNewStorage(t *testing.T) {
 	newWithKey := func(t *testing.T, key *rsa.PrivateKey) *Storage {
 		t.Helper()
@@ -537,6 +557,99 @@ func TestStorage_DeleteAuthRequest(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("codes map should be empty, have %d entries", n)
 	}
+}
+
+func TestStorage_GetClientByClientID(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("permissive mode fabricates a client for any id", func(t *testing.T) {
+		st := newTestStorage(t) // no clients configured
+		c, err := st.GetClientByClientID(ctx, "anything")
+		if err != nil {
+			t.Fatalf("permissive lookup should not fail: %v", err)
+		}
+		if c.GetID() != "anything" {
+			t.Errorf("GetID = %q, want %q", c.GetID(), "anything")
+		}
+		if got := c.(*client).RedirectURIGlobs(); len(got) == 0 {
+			t.Error("permissive client should accept any redirect via a glob")
+		}
+	})
+
+	t.Run("configured mode returns the registered client", func(t *testing.T) {
+		st := newStorageWithClients(t, config.Client{ID: "isen", RedirectURIs: []string{"http://app.test/cb"}})
+		c, err := st.GetClientByClientID(ctx, "isen")
+		if err != nil {
+			t.Fatalf("configured lookup: %v", err)
+		}
+		if got := c.RedirectURIs(); len(got) != 1 || got[0] != "http://app.test/cb" {
+			t.Errorf("RedirectURIs = %v, want [http://app.test/cb]", got)
+		}
+		if got := c.(*client).RedirectURIGlobs(); len(got) != 0 {
+			t.Errorf("a configured client must match redirects exactly, got globs %v", got)
+		}
+	})
+
+	t.Run("configured mode rejects an unknown client", func(t *testing.T) {
+		st := newStorageWithClients(t, config.Client{ID: "isen"})
+		if _, err := st.GetClientByClientID(ctx, "ghost"); err == nil {
+			t.Fatal("an unregistered client id must not be found")
+		}
+	})
+
+	t.Run("secret makes a client confidential, its absence public", func(t *testing.T) {
+		st := newStorageWithClients(t,
+			config.Client{ID: "public"},
+			config.Client{ID: "confidential", Secret: "s3cret"},
+		)
+		for id, want := range map[string]oidc.AuthMethod{
+			"public":       oidc.AuthMethodNone,
+			"confidential": oidc.AuthMethodBasic,
+		} {
+			c, err := st.GetClientByClientID(ctx, id)
+			if err != nil {
+				t.Fatalf("lookup %q: %v", id, err)
+			}
+			if got := c.AuthMethod(); got != want {
+				t.Errorf("%s AuthMethod = %v, want %v", id, got, want)
+			}
+		}
+	})
+}
+
+func TestStorage_AuthorizeClientIDSecret(t *testing.T) {
+	ctx := context.Background()
+	st := newStorageWithClients(t,
+		config.Client{ID: "public"},                        // no secret: public, PKCE only
+		config.Client{ID: "confidential", Secret: "s3cret"}, // confidential
+	)
+
+	tests := []struct {
+		name     string
+		clientID string
+		secret   string
+		wantErr  bool
+	}{
+		{"correct secret accepted", "confidential", "s3cret", false},
+		{"wrong secret rejected", "confidential", "nope", true},
+		{"secret on a public client rejected", "public", "anything", true},
+		{"unknown client rejected", "ghost", "whatever", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := st.AuthorizeClientIDSecret(ctx, tt.clientID, tt.secret)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("AuthorizeClientIDSecret(%q, %q) err = %v, wantErr %v", tt.clientID, tt.secret, err, tt.wantErr)
+			}
+		})
+	}
+
+	t.Run("permissive mode accepts any secret", func(t *testing.T) {
+		st := newTestStorage(t) // no clients configured
+		if err := st.AuthorizeClientIDSecret(ctx, "anything", "any-secret"); err != nil {
+			t.Fatalf("permissive mode should accept any secret: %v", err)
+		}
+	})
 }
 
 func TestStorage_AudienceFor(t *testing.T) {
