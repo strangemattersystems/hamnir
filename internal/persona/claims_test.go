@@ -6,6 +6,8 @@ import (
 )
 
 func TestReleaseClaims(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		claims   map[string]any
@@ -45,9 +47,32 @@ func TestReleaseClaims(t *testing.T) {
 			scopeMap: map[string][]string{"roles": {"roles"}},
 			want:     map[string]any{"sub": "s", "roles": []any{"coach"}},
 		},
+		{
+			name:     "scopeMap cannot grant a standard claim",
+			claims:   map[string]any{"sub": "s", "email": "e"},
+			scopes:   []string{"openid", "grant-email"},
+			scopeMap: map[string][]string{"grant-email": {"email"}},
+			want:     map[string]any{"sub": "s"},
+		},
+		{
+			name:     "custom claim released when any gating scope is requested",
+			claims:   map[string]any{"sub": "s", "roles": []any{"coach"}},
+			scopes:   []string{"openid", "team"},
+			scopeMap: map[string][]string{"admin": {"roles"}, "team": {"roles"}},
+			want:     map[string]any{"sub": "s", "roles": []any{"coach"}},
+		},
+		{
+			name:   "nil claims yields empty map",
+			claims: nil,
+			scopes: []string{"openid", "profile"},
+			want:   map[string]any{},
+		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := ReleaseClaims(tt.claims, tt.scopes, tt.scopeMap)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("ReleaseClaims() = %v, want %v", got, tt.want)
