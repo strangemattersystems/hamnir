@@ -6,6 +6,7 @@ package web
 import (
 	"bytes"
 	"cmp"
+	"embed"
 	"errors"
 	"html/template"
 	"log/slog"
@@ -17,6 +18,9 @@ import (
 	"github.com/strangemattersystems/hamnir/internal/persona"
 	"github.com/strangemattersystems/hamnir/internal/provider"
 )
+
+//go:embed templates/*.tmpl static/*
+var assets embed.FS
 
 // Handler serves the persona picker and completes the authorization request for
 // the chosen persona. It is read-only after construction and safe for
