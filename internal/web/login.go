@@ -1,3 +1,6 @@
+// Package web serves hamnir's persona picker: the login page where a developer
+// chooses which persona to authenticate as, and the form post that completes
+// the pending authorization request.
 package web
 
 import (
@@ -15,6 +18,9 @@ import (
 	"github.com/strangemattersystems/hamnir/internal/provider"
 )
 
+// Handler serves the persona picker and completes the authorization request for
+// the chosen persona. It is read-only after construction and safe for
+// concurrent use.
 type Handler struct {
 	set         *persona.Set
 	cfg         *config.Config
@@ -42,11 +48,16 @@ type pageVM struct {
 	Groups        []groupVM
 }
 
+// NewHandler builds a picker Handler. complete records the chosen persona on the
+// pending auth request, and callbackURL is where a completed selection redirects
+// to hand control back to the OpenID provider.
 func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, string) error, callbackURL string) *Handler {
 	tmpl := template.Must(template.ParseFS(assets, "templates/*.tmpl"))
 	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl}
 }
 
+// Routes registers the picker's handlers on mux: the static assets, the GET
+// login page, and the POST that completes a persona selection.
 func (h *Handler) Routes(mux *http.ServeMux) {
 	mux.Handle("/static/", http.FileServerFS(assets))
 	mux.HandleFunc("GET "+provider.LoginPath, h.getLogin)
