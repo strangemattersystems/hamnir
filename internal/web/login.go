@@ -59,11 +59,12 @@ type pageVM struct {
 // to hand control back to the OpenID provider.
 func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, string) error, callbackURL string) *Handler {
 	tmpl := template.Must(template.ParseFS(assets, "templates/*.tmpl"))
-	css, err := assets.ReadFile("static/style.css")
+	raw, err := assets.ReadFile("static/style.css")
 	if err != nil {
 		panic("web: embedded static/style.css: " + err.Error())
 	}
-	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl, css: template.CSS(css)}
+	css := template.CSS(raw) //nolint:gosec // G203: raw is our own embedded stylesheet, not user input.
+	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl, css: css}
 }
 
 // Routes registers the picker's handlers on mux: the GET login page and the
