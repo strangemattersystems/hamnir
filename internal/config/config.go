@@ -16,6 +16,7 @@ type Config struct {
 	Clients    []Client            `yaml:"clients"`
 	Groups     []Group             `yaml:"groups"`
 	Scopes     map[string][]string `yaml:"scopes"`
+	Audiences  []string            `yaml:"audiences"`
 	Personas   []Persona           `yaml:"personas"`
 	Static     Static              `yaml:"static"`
 	Lifetimes  Lifetimes           `yaml:"lifetimes"`
@@ -51,6 +52,7 @@ type Client struct {
 	RedirectURIs           []string `yaml:"redirect_uris"`
 	PostLogoutRedirectURIs []string `yaml:"post_logout_redirect_uris"`
 	Secret                 string   `yaml:"secret"`
+	Audiences              []string `yaml:"audiences"`
 }
 
 type Group struct {
