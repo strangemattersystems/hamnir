@@ -3,7 +3,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    command: ["serve", "--addr", "0.0.0.0:5556", "--config", "/etc/hamnir/hamnir.yaml"]
+    environment:
+      HAMNIR_CONFIG: /etc/hamnir/hamnir.yaml
     volumes:
       - ./hamnir.yaml:/etc/hamnir/hamnir.yaml:ro
       - ./avatars:/etc/hamnir/avatars:ro

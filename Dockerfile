@@ -26,8 +26,10 @@ WORKDIR /home/nonroot
 
 COPY --from=build /out/hamnir /usr/local/bin/hamnir
 
+ENV HAMNIR_ADDR=0.0.0.0:5556
+
 EXPOSE 5556
 
 ENTRYPOINT ["hamnir"]
 
-CMD ["serve", "--addr", "0.0.0.0:5556"]
+CMD ["serve"]
