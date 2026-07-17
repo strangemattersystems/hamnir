@@ -8,6 +8,8 @@ import (
 )
 
 func TestObserveClientPresentation(t *testing.T) {
+	t.Parallel()
+
 	observe := func(r *http.Request) (presentation, int) {
 		var p presentation
 		reached := false
@@ -24,6 +26,8 @@ func TestObserveClientPresentation(t *testing.T) {
 	}
 
 	t.Run("secret in body", func(t *testing.T) {
+		t.Parallel()
+
 		r := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader("client_secret=s3cret"))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if p, _ := observe(r); !p.clientSecret {
@@ -32,6 +36,8 @@ func TestObserveClientPresentation(t *testing.T) {
 	})
 
 	t.Run("secret in query", func(t *testing.T) {
+		t.Parallel()
+
 		// Non-compliant but op decodes the merged form, so the middleware
 		// must see what op sees.
 		r := httptest.NewRequest(http.MethodPost, "/oauth/token?client_secret=s3cret", strings.NewReader("grant_type=authorization_code"))
@@ -42,6 +48,8 @@ func TestObserveClientPresentation(t *testing.T) {
 	})
 
 	t.Run("empty basic password is not a secret", func(t *testing.T) {
+		t.Parallel()
+
 		r := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader("grant_type=authorization_code"))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		r.SetBasicAuth("client", "")
@@ -51,6 +59,8 @@ func TestObserveClientPresentation(t *testing.T) {
 	})
 
 	t.Run("malformed body answered with 400", func(t *testing.T) {
+		t.Parallel()
+
 		// If the middleware merely swallowed the ParseForm error, the cached
 		// partial form would also skip op's own parse-error response.
 		r := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader("a=%zz"))

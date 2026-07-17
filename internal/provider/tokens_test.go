@@ -12,6 +12,8 @@ import (
 )
 
 func TestRefreshTokenManager(t *testing.T) {
+	t.Parallel()
+
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)

@@ -16,12 +16,16 @@ import (
 )
 
 func TestCryptoKey(t *testing.T) {
+	t.Parallel()
+
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Run("deterministic for a given key", func(t *testing.T) {
+		t.Parallel()
+
 		first := cryptoKey(key)
 		second := cryptoKey(key)
 		if first != second {

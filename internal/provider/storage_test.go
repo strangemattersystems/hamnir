@@ -71,6 +71,8 @@ func newStorageWithClients(t *testing.T, clients ...config.Client) *Storage {
 }
 
 func TestNewStorage(t *testing.T) {
+	t.Parallel()
+
 	newWithKey := func(t *testing.T, key *rsa.PrivateKey) *Storage {
 		t.Helper()
 		cfg := &config.Config{}
@@ -82,6 +84,8 @@ func TestNewStorage(t *testing.T) {
 	}
 
 	t.Run("same key yields the same kid", func(t *testing.T) {
+		t.Parallel()
+
 		// kid must be derived from the key, not chosen per process: replicas and
 		// restarts sharing one configured key must advertise one consistent kid,
 		// or strict-kid verifiers reject tokens minted by another process.
@@ -99,6 +103,8 @@ func TestNewStorage(t *testing.T) {
 	})
 
 	t.Run("different keys yield different kids", func(t *testing.T) {
+		t.Parallel()
+
 		key1, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			t.Fatal(err)
@@ -113,6 +119,8 @@ func TestNewStorage(t *testing.T) {
 	})
 
 	t.Run("configured lifetimes flow through", func(t *testing.T) {
+		t.Parallel()
+
 		lt := config.Lifetimes{
 			AccessToken:  42 * time.Minute,
 			IDToken:      7 * time.Minute,
@@ -142,9 +150,13 @@ func TestNewStorage(t *testing.T) {
 // The in-memory stores must not grow without bound over a long-running dev
 // session: each write site sweeps entries that can no longer matter.
 func TestStorage_Eviction(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	t.Run("stale auth requests and codes", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		old, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
 		if err != nil {
@@ -169,6 +181,8 @@ func TestStorage_Eviction(t *testing.T) {
 	})
 
 	t.Run("expired access tokens", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice"})
 		st.mu.Lock()
@@ -185,6 +199,8 @@ func TestStorage_Eviction(t *testing.T) {
 	})
 
 	t.Run("stale session ids", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		first, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
 		if err != nil {
@@ -245,9 +261,13 @@ func login(t *testing.T, st *Storage, clientID string) string {
 // alive past the login-time horizon, and logout only terminates the
 // requesting client's sessions.
 func TestStorage_Sessions(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	t.Run("rotation keeps the session alive", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		sid := login(t, st, "isen")
 		rt, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}, SID: sid})
@@ -284,6 +304,8 @@ func TestStorage_Sessions(t *testing.T) {
 	})
 
 	t.Run("logout terminates only the requesting client", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		sidA := login(t, st, "app-a")
 		sidB := login(t, st, "app-b")
@@ -321,6 +343,8 @@ func TestStorage_Sessions(t *testing.T) {
 	})
 
 	t.Run("logout without a client terminates everything", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		sidA := login(t, st, "app-a")
 		sidB := login(t, st, "app-b")
@@ -351,9 +375,13 @@ func TestStorage_Sessions(t *testing.T) {
 // snapshots, superseded codes die with their successor, and an idle picker
 // is not evicted from under the user.
 func TestStorage_AuthRequestLifecycle(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	t.Run("replayed selection rejected", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		req, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
 		if err != nil {
@@ -368,6 +396,8 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 	})
 
 	t.Run("lookups return snapshots", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		created, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
 		if err != nil {
@@ -386,6 +416,8 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 	})
 
 	t.Run("superseded code dies with its successor", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		req, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
 		if err != nil {
@@ -412,6 +444,8 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 	})
 
 	t.Run("idle picker outlives a meeting", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		idle, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
 		if err != nil {
@@ -430,6 +464,8 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 	})
 
 	t.Run("unknown request cannot be completed", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		if err := st.AuthenticateAndComplete("ghost", "usr_alice"); !errors.Is(err, ErrAuthRequestNotFound) {
 			t.Fatalf("want ErrAuthRequestNotFound, got %v", err)
@@ -437,6 +473,8 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 	})
 
 	t.Run("unknown request cannot save a code", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		if err := st.SaveAuthCode(ctx, "ghost", "code"); !errors.Is(err, ErrAuthRequestNotFound) {
 			t.Fatalf("want ErrAuthRequestNotFound, got %v", err)
@@ -444,6 +482,8 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 	})
 
 	t.Run("an unissued code is not exchangeable", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		if _, err := st.AuthRequestByCode(ctx, "never-issued"); err == nil {
 			t.Fatal("an unissued code must not resolve")
@@ -451,6 +491,8 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 	})
 
 	t.Run("prompt=none is refused", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		req := &oidc.AuthRequest{ClientID: "c", Prompt: oidc.SpaceDelimitedArray{oidc.PromptNone}}
 		if _, err := st.CreateAuthRequest(ctx, req, ""); !errors.Is(err, oidc.ErrLoginRequired()) {
@@ -463,9 +505,13 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 // issued to may revoke it, and any member of a rotation family — including a
 // superseded token — identifies the session to kill.
 func TestStorage_Revocation(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	t.Run("cross-client refresh revocation refused", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		sid := login(t, st, "app-a")
 		rt, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sid})
@@ -484,6 +530,8 @@ func TestStorage_Revocation(t *testing.T) {
 	})
 
 	t.Run("cross-client access revocation refused", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a"})
 		if oidcErr := st.RevokeToken(ctx, jti, "usr_alice", "app-b"); oidcErr == nil {
@@ -498,6 +546,8 @@ func TestStorage_Revocation(t *testing.T) {
 	})
 
 	t.Run("own token revokes the session", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		sid := login(t, st, "app-a")
 		rt, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sid})
@@ -517,6 +567,8 @@ func TestStorage_Revocation(t *testing.T) {
 	})
 
 	t.Run("superseded token still revokes its session", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		sid := login(t, st, "app-a")
 		old, err := st.refresh.Issue(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sid})
@@ -546,6 +598,8 @@ func TestStorage_Revocation(t *testing.T) {
 	})
 
 	t.Run("own access token is revoked", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a"})
 		if oidcErr := st.RevokeToken(ctx, jti, "usr_alice", "app-a"); oidcErr != nil {
@@ -560,6 +614,8 @@ func TestStorage_Revocation(t *testing.T) {
 	})
 
 	t.Run("garbage token does not resolve for revocation", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		if _, _, err := st.GetRefreshTokenInfo(ctx, "app-a", "not-a-jwt"); !errors.Is(err, op.ErrInvalidRefreshToken) {
 			t.Fatalf("want op.ErrInvalidRefreshToken, got %v", err)
@@ -567,6 +623,8 @@ func TestStorage_Revocation(t *testing.T) {
 	})
 
 	t.Run("raw refresh token revokes its own session", func(t *testing.T) {
+		t.Parallel()
+
 		// op usually resolves a session id via GetRefreshTokenInfo first, but a
 		// raw refresh JWT presented for its own client must revoke too.
 		st := newTestStorage(t)
@@ -588,9 +646,13 @@ func TestStorage_Revocation(t *testing.T) {
 // of an access token: an active token reports its client, subject and scopes;
 // an unknown or expired token is rejected.
 func TestStorage_SetIntrospectionFromToken(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	t.Run("active token populates the response", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
 
@@ -610,6 +672,8 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 	})
 
 	t.Run("unknown token is rejected", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		var resp oidc.IntrospectionResponse
 		if err := st.SetIntrospectionFromToken(ctx, &resp, "no-such-jti", "usr_alice", "isen"); err == nil {
@@ -618,6 +682,8 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 	})
 
 	t.Run("expired token is rejected", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t)
 		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
 		st.mu.Lock()
@@ -642,6 +708,8 @@ func (unexpectedTokenRequest) GetScopes() []string   { return []string{"openid"}
 // request type fails loudly instead of silently minting an anonymous token
 // with no client id or session.
 func TestStorage_CreateAccessToken_UnexpectedRequest(t *testing.T) {
+	t.Parallel()
+
 	st := newTestStorage(t)
 	if _, _, err := st.CreateAccessToken(context.Background(), unexpectedTokenRequest{}); err == nil {
 		t.Fatal("an unexpected token request type must be rejected")
@@ -651,6 +719,8 @@ func TestStorage_CreateAccessToken_UnexpectedRequest(t *testing.T) {
 // TestStorage_DeleteAuthRequest pins the code cleanup on token exchange: the
 // exchanged request and its code both disappear.
 func TestStorage_DeleteAuthRequest(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	st := newTestStorage(t)
 	req, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c"}, "")
@@ -675,9 +745,13 @@ func TestStorage_DeleteAuthRequest(t *testing.T) {
 }
 
 func TestStorage_GetClientByClientID(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 
 	t.Run("permissive mode fabricates a client for any id", func(t *testing.T) {
+		t.Parallel()
+
 		st := newTestStorage(t) // no clients configured
 		c, err := st.GetClientByClientID(ctx, "anything")
 		if err != nil {
@@ -692,6 +766,8 @@ func TestStorage_GetClientByClientID(t *testing.T) {
 	})
 
 	t.Run("configured mode returns the registered client", func(t *testing.T) {
+		t.Parallel()
+
 		st := newStorageWithClients(t, config.Client{ID: "isen", RedirectURIs: []string{"http://app.test/cb"}})
 		c, err := st.GetClientByClientID(ctx, "isen")
 		if err != nil {
@@ -706,6 +782,8 @@ func TestStorage_GetClientByClientID(t *testing.T) {
 	})
 
 	t.Run("configured mode rejects an unknown client", func(t *testing.T) {
+		t.Parallel()
+
 		st := newStorageWithClients(t, config.Client{ID: "isen"})
 		if _, err := st.GetClientByClientID(ctx, "ghost"); err == nil {
 			t.Fatal("an unregistered client id must not be found")
@@ -713,6 +791,8 @@ func TestStorage_GetClientByClientID(t *testing.T) {
 	})
 
 	t.Run("secret makes a client confidential, its absence public", func(t *testing.T) {
+		t.Parallel()
+
 		st := newStorageWithClients(t,
 			config.Client{ID: "public"},
 			config.Client{ID: "confidential", Secret: "s3cret"},
@@ -733,6 +813,8 @@ func TestStorage_GetClientByClientID(t *testing.T) {
 }
 
 func TestStorage_AuthorizeClientIDSecret(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	st := newStorageWithClients(t,
 		config.Client{ID: "public"},                         // no secret: public, PKCE only
@@ -768,6 +850,8 @@ func TestStorage_AuthorizeClientIDSecret(t *testing.T) {
 }
 
 func TestStorage_AudienceFor(t *testing.T) {
+	t.Parallel()
+
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
