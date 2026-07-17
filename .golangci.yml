@@ -1,0 +1,53 @@
+version: "2"
+
+linters:
+  default: standard 
+  enable:
+    - bodyclose 
+    - canonicalheader 
+    - durationcheck 
+    - errorlint 
+    - fatcontext
+    - nilerr 
+    - noctx 
+    - reassign 
+    - gosec
+    - modernize
+    - copyloopvar 
+    - iface
+    - intrange 
+    - mirror 
+    - perfsprint 
+    - usestdlibvars 
+    - sloglint
+    - errname
+    - gocritic 
+    - misspell 
+    - nolintlint 
+    - predeclared 
+    - unconvert 
+    - unparam 
+    - wastedassign 
+    - whitespace 
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    presets:
+      - common-false-positives
+    rules:
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - gosec
+          - noctx
+
+formatters:
+  enable:
+    - gofumpt 
+    - goimports 
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/strangemattersystems/hamnir

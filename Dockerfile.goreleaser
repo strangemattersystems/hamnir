@@ -1,0 +1,15 @@
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:aef9602f8710ec12bde19d593fed1f76c708531bb7aba205110f1029786ead7b
+
+ARG TARGETPLATFORM
+
+WORKDIR /home/nonroot
+
+# goreleaser lays out the build context with per-platform subdirs
+# (linux/amd64/, linux/arm64/), selected here via $TARGETPLATFORM.
+COPY $TARGETPLATFORM/hamnir /usr/local/bin/hamnir
+
+EXPOSE 5556
+
+ENTRYPOINT ["hamnir"]
+
+CMD ["serve", "--addr", "0.0.0.0:5556"]

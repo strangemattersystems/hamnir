@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hamnir — choose a persona</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <div class="brand">
+        <div class="brand-name">hamnir</div>
+        <div class="brand-tagline">dev-only OpenID Connect provider</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    {{ range .Groups }}
+    <section class="group">
+      <h2 class="group-label"><span class="dot" style="background: {{ .Colour }}"></span>{{ .Label }}</h2>
+      <div class="grid">
+      {{ range .Personas }}
+        <form method="post" action="/login/select">
+          <input type="hidden" name="authRequestID" value="{{ $.AuthRequestID }}">
+          <input type="hidden" name="sub" value="{{ .Sub }}">
+          <button class="card" style="--accent: {{ .Colour }}">
+            {{ if .Picture }}<img class="avatar" src="{{ .Picture }}" alt="">{{ else }}<span class="avatar-placeholder" aria-hidden="true">{{ .Initial }}</span>{{ end }}
+            <span class="card-text">
+              <span class="name">{{ .Name }}</span>
+              {{ if .Description }}<span class="desc">{{ .Description }}</span>{{ end }}
+            </span>
+          </button>
+        </form>
+      {{ end }}
+      </div>
+    </section>
+    {{ end }}
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p class="caption">Personas are defined in your <code>hamnir.yaml</code>.</p>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

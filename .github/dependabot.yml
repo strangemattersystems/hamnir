@@ -1,0 +1,49 @@
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates
+version: 2
+updates:
+  # NOTE: The goreleaser version lives as a `go run …@vX` string in Taskfile.yml and
+  # is NOT visible to Dependabot; bump it by hand.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: gomod
+    directory: /examples/webapp
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: ci
+      include: scope
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: docker
+    directory: /examples/webapp
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 8
+    commit-message:
+      prefix: chore
+      include: scope

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json
+
+# This is a minimal starter config for you to adapt as you need. The hamnir documentation can help
+# you create more complete configurations; with groups, static content, client restrictions, etc.
+
+personas:
+  - name: Alice
+    description: Sender
+    claims:
+      sub: usr_alice
+      email: alice@example.test
+      email_verified: true
+      name: Alice
+  - name: Bob
+    description: Recipient
+    claims:
+      sub: usr_bob
+      email: bob@example.test
+      email_verified: true
+      name: Bob
+  - name: Eve
+    description: Eavesdropper
+    claims:
+      sub: usr_eve
+      email: eve@example.test
+      email_verified: true
+      name: Eve
+      evesdropper: true

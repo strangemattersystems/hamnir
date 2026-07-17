@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json",
+  "title": "hamnir config",
+  "description": "Configuration for hamnir, a persona-first OIDC dev provider. Note: cross-referential rules (persona.group must match a groups[].id, sub unique across personas, client ids unique, static mount keys not colliding after leading-slash normalisation) are enforced by hamnir at load time, not by this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "dependentRequired": { "browser_url": ["issuer"] },
+  "properties": {
+    "issuer": {
+      "type": "string",
+      "format": "uri",
+      "description": "OIDC issuer URL. Omit to derive the issuer per-request from the request host — handy when every caller reaches hamnir at one address (plain localhost, a port-forward). Do NOT rely on it for split setups where a browser and a backend use different hosts: discovery advertises endpoints at whichever host performed discovery, so mixed flows break. For split front/back-channel setups set issuer plus browser_url instead."
+    },
+    "browser_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Browser-facing base URL, for split front/back-channel setups where the browser reaches hamnir at a different address than backend callers (e.g. http://localhost:5556 vs http://hamnir:5556 in docker-compose). Browser-facing endpoints (authorize, end_session) and static asset URLs are advertised at this base; token, userinfo and jwks stay on the issuer. Requires a static issuer."
+    },
+    "clients": {
+      "type": "array",
+      "description": "Registered OAuth clients. Providing any client puts hamnir in strict mode: only these client_ids and their exact redirect URIs are accepted. Omit the whole block for permissive dev mode (any client_id and redirect_uri).",
+      "items": { "$ref": "#/$defs/client" }
+    },
+    "groups": {
+      "type": "array",
+      "description": "Persona groups, used to organise and colour-code the persona picker.",
+      "items": { "$ref": "#/$defs/group" }
+    },
+    "scopes": {
+      "type": "object",
+      "description": "Custom scope definitions mapping a scope name to the list of claim names it releases.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "personas": {
+      "type": "array",
+      "description": "The selectable identities shown in the persona picker.",
+      "items": { "$ref": "#/$defs/persona" }
+    },
+    "static": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Serve local directories of static files (e.g. profile images) under the reserved /.static/ URL root, and reference them from claims via the prefix marker.",
+      "properties": {
+        "prefix": {
+          "type": "string",
+          "description": "Claim-value marker that opts a value into static-URL substitution. Defaults to \"hamnir://\". Override if you need that literal string elsewhere."
+        },
+        "paths": {
+          "type": "object",
+          "description": "Map of mount name to local directory. Each is served under /.static/<mount>/. Reference a file as <prefix><mount>/<file>. Mount names must be non-empty and must not contain \"/\" or \"..\" (a single leading \"/\" is tolerated and stripped).",
+          "propertyNames": { "pattern": "^/?(?!.*\\.\\.)[^/]+$" },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Client identifier (client_id)."
+        },
+        "redirect_uris": {
+          "type": "array",
+          "description": "Exact redirect URIs permitted for this client. Omit for a back-channel-only client (introspection/revocation) that never performs a redirect flow.",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "post_logout_redirect_uris": {
+          "type": "array",
+          "description": "Exact post-logout redirect URIs permitted for this client.",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "secret": {
+          "type": "string",
+          "description": "Client secret. Omit for a public client that authenticates with PKCE."
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique group identifier, referenced by persona.group."
+        },
+        "label": {
+          "type": "string",
+          "description": "Human-readable label shown in the persona picker."
+        },
+        "colour": {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$",
+          "description": "Accent colour as a 3- or 6-digit hex code, e.g. \"#8b5cf6\"."
+        }
+      }
+    },
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claims"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name shown in the persona picker."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional secondary text shown under the name in the picker."
+        },
+        "group": {
+          "type": "string",
+          "description": "Group id this persona belongs to. Must match a groups[].id (enforced by hamnir at load time)."
+        },
+        "claims": {
+          "type": "object",
+          "description": "Claims released for this persona. Arbitrary claim keys are allowed; sub is required and must be unique across personas.",
+          "required": ["sub"],
+          "properties": {
+            "sub": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Stable subject identifier. Required, and unique across personas."
+            }
+          }
+        }
+      }
+    }
+  }
+}

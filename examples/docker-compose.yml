@@ -1,0 +1,24 @@
+services:
+  hamnir:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["serve", "--addr", "0.0.0.0:5556", "--config", "/etc/hamnir/hamnir.yaml"]
+    volumes:
+      - ./hamnir.yaml:/etc/hamnir/hamnir.yaml:ro
+      - ./avatars:/etc/hamnir/avatars:ro
+    ports:
+      - "5556:5556"
+
+  webapp:
+    build:
+      context: ./webapp
+    environment:
+      HAMNIR_URL: http://hamnir:5556
+      CLIENT_ID: example-webapp
+      REDIRECT_URI: http://localhost:8080/callback
+      ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - hamnir

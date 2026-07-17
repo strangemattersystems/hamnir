@@ -1,0 +1,87 @@
+# https://goreleaser.com — v2 config.
+version: 2
+
+project_name: hamnir
+
+report_sizes: true
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - main: ./cmd/hamnir
+    binary: hamnir
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+      - -tags=netgo,osusergo
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.revision={{ .Commit }}
+      - -X main.date={{ .CommitDate }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: ""
+  abbrev: -1
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
+
+release:
+  prerelease: auto
+
+# Requires syft on PATH (installed in CI).
+sboms:
+  - artifacts: archive
+
+dockers_v2:
+  - images:
+      - ghcr.io/strangemattersystems/hamnir
+    dockerfile: Dockerfile.goreleaser
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.source: "https://github.com/strangemattersystems/hamnir"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+      org.opencontainers.image.licenses: MIT

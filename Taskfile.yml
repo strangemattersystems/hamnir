@@ -1,0 +1,65 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  BINARY: hamnir
+  GORELEASER: go run github.com/goreleaser/goreleaser/v2@v2.17.0
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  REVISION:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo unknown
+  DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  LDFLAGS: >-
+    -X main.version={{.VERSION}}
+    -X main.revision={{.REVISION}}
+    -X main.date={{.DATE}}
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  build:
+    desc: Build the hamnir binary
+    cmds:
+      - go build -ldflags '{{.LDFLAGS}}' -o {{.BINARY}} ./cmd/hamnir
+
+  test:
+    desc: Run the test suite with the race detector and coverage
+    cmds:
+      - go test -race -cover ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - go tool golangci-lint run ./...
+
+  fmt:
+    desc: Format the code
+    cmds:
+      - go tool golangci-lint fmt ./...
+
+  ci:
+    desc: Run the full CI suite
+    cmds:
+      - task: build
+      - task: lint
+      - task: test
+
+  release-check:
+    desc: Validate the goreleaser config
+    cmds:
+      - "{{.GORELEASER}} check"
+
+  release-snapshot:
+    desc: Build a local snapshot release into dist/ (no tag, no publish)
+    cmds:
+      - "{{.GORELEASER}} release --snapshot --clean"
+
+  release:
+    desc: Build and publish a release (should run on a pushed tag in CI only)
+    cmds:
+      - "{{.GORELEASER}} release --clean"
