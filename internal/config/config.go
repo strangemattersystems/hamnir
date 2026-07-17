@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/goccy/go-yaml"
 )
@@ -17,6 +18,7 @@ type Config struct {
 	Scopes     map[string][]string `yaml:"scopes"`
 	Personas   []Persona           `yaml:"personas"`
 	Static     Static              `yaml:"static"`
+	Lifetimes  Lifetimes           `yaml:"lifetimes"`
 	SigningKey string              `yaml:"signing_key"`
 
 	// Key is SigningKey decoded, populated by Load. Never serialised.
@@ -26,6 +28,22 @@ type Config struct {
 type Static struct {
 	Prefix string            `yaml:"prefix"`
 	Paths  map[string]string `yaml:"paths"`
+}
+
+// Lifetimes configures how long issued tokens live, as Go duration strings in
+// YAML ("90s", "5m", "24h"). Fields left at zero take their DefaultLifetimes
+// value during Load; explicit values must be positive.
+type Lifetimes struct {
+	AccessToken  time.Duration `yaml:"access_token"`
+	IDToken      time.Duration `yaml:"id_token"`
+	RefreshToken time.Duration `yaml:"refresh_token"`
+}
+
+// DefaultLifetimes are the token lifetimes used for fields the config omits.
+var DefaultLifetimes = Lifetimes{
+	AccessToken:  5 * time.Minute,
+	IDToken:      time.Hour,
+	RefreshToken: 24 * time.Hour,
 }
 
 type Client struct {
@@ -94,6 +112,15 @@ func (c *Config) normalise() error {
 	}
 	if c.Static.Prefix == "" {
 		c.Static.Prefix = "hamnir://"
+	}
+	if c.Lifetimes.AccessToken == 0 {
+		c.Lifetimes.AccessToken = DefaultLifetimes.AccessToken
+	}
+	if c.Lifetimes.IDToken == 0 {
+		c.Lifetimes.IDToken = DefaultLifetimes.IDToken
+	}
+	if c.Lifetimes.RefreshToken == 0 {
+		c.Lifetimes.RefreshToken = DefaultLifetimes.RefreshToken
 	}
 	return nil
 }

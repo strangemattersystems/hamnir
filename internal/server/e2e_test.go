@@ -389,6 +389,9 @@ func newServer(t *testing.T, cfg *config.Config) (*httptest.Server, *http.Client
 		t.Fatal(err)
 	}
 	cfg.Key = key
+	if cfg.Lifetimes == (config.Lifetimes{}) {
+		cfg.Lifetimes = config.DefaultLifetimes
+	}
 	h, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
@@ -23,6 +24,7 @@ var (
 	errDuplicateStaticMount  = errors.New("duplicate static mount")
 	errEmptyClientID         = errors.New("empty client id")
 	errDuplicateClientID     = errors.New("duplicate client id")
+	errNegativeLifetime      = errors.New("negative lifetime")
 )
 
 var hexColour = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
@@ -79,6 +81,22 @@ func (c *Config) Validate() error {
 		}
 		if err := validateURL(c.BrowserURL); err != nil {
 			return fmt.Errorf("browser_url %q: %w", c.BrowserURL, err)
+		}
+	}
+
+	// Zero means "unset" (normalise fills in the default during Load), so
+	// only explicitly negative values are rejected here.
+	lifetimes := []struct {
+		name string
+		d    time.Duration
+	}{
+		{"access_token", c.Lifetimes.AccessToken},
+		{"id_token", c.Lifetimes.IDToken},
+		{"refresh_token", c.Lifetimes.RefreshToken},
+	}
+	for _, l := range lifetimes {
+		if l.d < 0 {
+			return fmt.Errorf("lifetimes.%s: %w", l.name, errNegativeLifetime)
 		}
 	}
 

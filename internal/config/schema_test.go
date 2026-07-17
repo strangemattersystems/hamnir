@@ -41,6 +41,7 @@ func TestSchemaCoversConfig(t *testing.T) {
 		{"group", reflect.TypeFor[Group](), props(child(defs, "group"))},
 		{"persona", reflect.TypeFor[Persona](), props(child(defs, "persona"))},
 		{"static", reflect.TypeFor[Static](), props(child(root, "static"))},
+		{"lifetimes", reflect.TypeFor[Lifetimes](), props(child(root, "lifetimes"))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

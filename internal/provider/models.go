@@ -93,6 +93,7 @@ type client struct {
 	accessTokenType        op.AccessTokenType
 	devMode                bool
 	redirectGlobs          []string
+	idTokenLifetime        time.Duration
 }
 
 var (
@@ -111,7 +112,7 @@ func (c *client) LoginURL(id string) string {
 	return LoginPath + "?" + AuthRequestIDParam + "=" + id
 }
 func (c *client) AccessTokenType() op.AccessTokenType  { return c.accessTokenType }
-func (c *client) IDTokenLifetime() time.Duration       { return idTokenLifetime }
+func (c *client) IDTokenLifetime() time.Duration       { return c.idTokenLifetime }
 func (c *client) DevMode() bool                        { return c.devMode }
 func (c *client) IDTokenUserinfoClaimsAssertion() bool { return true }
 func (c *client) ClockSkew() time.Duration             { return 0 }
@@ -141,7 +142,7 @@ func (c *client) IsScopeAllowed(scope string) bool {
 // neither is rejected just as a real IdP would. A requested post-logout
 // redirect is registered verbatim so RP-initiated logout round-trips. Used
 // when no clients are configured.
-func permissiveClient(id string, p presentation) *client {
+func permissiveClient(id string, p presentation, idTokenLifetime time.Duration) *client {
 	authMethod := oidc.AuthMethodNone
 	if p.clientSecret {
 		authMethod = oidc.AuthMethodBasic
@@ -161,13 +162,14 @@ func permissiveClient(id string, p presentation) *client {
 		accessTokenType:        op.AccessTokenTypeJWT,
 		devMode:                true,
 		redirectGlobs:          []string{"**"},
+		idTokenLifetime:        idTokenLifetime,
 	}
 }
 
 // clientFromConfig builds a strict client from configuration. Clients with a
 // secret are confidential (Basic auth); clients without are public and rely on
 // PKCE. Redirect URIs are matched exactly.
-func clientFromConfig(c config.Client) *client {
+func clientFromConfig(c config.Client, idTokenLifetime time.Duration) *client {
 	authMethod := oidc.AuthMethodNone
 	if c.Secret != "" {
 		authMethod = oidc.AuthMethodBasic
@@ -182,5 +184,6 @@ func clientFromConfig(c config.Client) *client {
 		responseTypes:          []oidc.ResponseType{oidc.ResponseTypeCode},
 		accessTokenType:        op.AccessTokenTypeJWT,
 		devMode:                false,
+		idTokenLifetime:        idTokenLifetime,
 	}
 }

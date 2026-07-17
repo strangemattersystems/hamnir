@@ -20,12 +20,6 @@ import (
 )
 
 const (
-	// refreshTokenTTL is the lifetime of issued refresh tokens.
-	refreshTokenTTL = 24 * time.Hour
-	// accessTokenLifetime is the lifetime of issued access tokens.
-	accessTokenLifetime = 5 * time.Minute
-	// idTokenLifetime is the lifetime of issued id tokens.
-	idTokenLifetime = time.Hour
 	// authRequestTTL is how long an unexchanged /authorize flow may sit in the
 	// picker before its auth request (and code) are considered abandoned. An
 	// auth request is a few hundred bytes, so this is generous on purpose: a
@@ -87,7 +81,7 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 	if audience == "" {
 		audience = defaultRefreshAudience
 	}
-	refresh, err := NewRefreshTokenManager(key, refreshTokenTTL, audience)
+	refresh, err := NewRefreshTokenManager(key, cfg.Lifetimes.RefreshToken, audience)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +128,7 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 	now := req.authTime
 	for subject, sids := range s.sessions {
 		maps.DeleteFunc(sids, func(_ string, sess session) bool {
-			return now.Sub(sess.lastSeen) > refreshTokenTTL
+			return now.Sub(sess.lastSeen) > s.refresh.ttl
 		})
 		if len(sids) == 0 {
 			delete(s.sessions, subject)
@@ -302,7 +296,7 @@ func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration tim
 	maps.DeleteFunc(s.accessTokens, func(_ string, i *accessTokenInfo) bool {
 		return i.expiration.Before(now)
 	})
-	exp := now.Add(accessTokenLifetime)
+	exp := now.Add(s.cfg.Lifetimes.AccessToken)
 	s.accessTokens[jti] = &accessTokenInfo{TokenClaims: info, expiration: exp}
 	s.mu.Unlock()
 	return jti, exp
@@ -417,13 +411,13 @@ func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.
 	// Permissive mode: no configured clients, so accept any client_id with a
 	// client shaped to match how the RP presented itself on this request.
 	if len(s.cfg.Clients) == 0 {
-		return permissiveClient(clientID, presentationFrom(ctx)), nil
+		return permissiveClient(clientID, presentationFrom(ctx), s.cfg.Lifetimes.IDToken), nil
 	}
 	c, ok := s.clientConfig(clientID)
 	if !ok {
 		return nil, fmt.Errorf("client %q not found", clientID)
 	}
-	return clientFromConfig(c), nil
+	return clientFromConfig(c, s.cfg.Lifetimes.IDToken), nil
 }
 
 // clientConfig returns the configured client with the given id.

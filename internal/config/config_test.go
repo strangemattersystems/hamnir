@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // testSigningKey is generated once; RSA-2048 generation is too slow to repeat
@@ -252,6 +253,58 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 		got := cfg.Personas[0].Claims["profile"].(map[string]any)["avatar"]
 		if got != "http://hamnir:5556/.static/avatars/eve.svg" {
 			t.Errorf("nested avatar = %v", got)
+		}
+	})
+}
+
+func TestLoad_Lifetimes(t *testing.T) {
+	persona := "personas:\n  - claims: { sub: s }\n"
+
+	t.Run("defaults when omitted", func(t *testing.T) {
+		cfg, err := Load(writeTemp(t, persona))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.Lifetimes != DefaultLifetimes {
+			t.Errorf("Lifetimes = %+v, want DefaultLifetimes", cfg.Lifetimes)
+		}
+	})
+
+	t.Run("explicit values parsed", func(t *testing.T) {
+		cfg, err := Load(writeTemp(t, persona+
+			"lifetimes:\n  access_token: 90s\n  id_token: 2h\n  refresh_token: 720h\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		want := Lifetimes{AccessToken: 90 * time.Second, IDToken: 2 * time.Hour, RefreshToken: 720 * time.Hour}
+		if cfg.Lifetimes != want {
+			t.Errorf("Lifetimes = %+v, want %+v", cfg.Lifetimes, want)
+		}
+	})
+
+	t.Run("partial config keeps other defaults", func(t *testing.T) {
+		cfg, err := Load(writeTemp(t, persona+"lifetimes:\n  access_token: 30s\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.Lifetimes.AccessToken != 30*time.Second {
+			t.Errorf("AccessToken = %v, want 30s", cfg.Lifetimes.AccessToken)
+		}
+		if cfg.Lifetimes.IDToken != DefaultLifetimes.IDToken || cfg.Lifetimes.RefreshToken != DefaultLifetimes.RefreshToken {
+			t.Errorf("unset fields not defaulted: %+v", cfg.Lifetimes)
+		}
+	})
+
+	t.Run("negative rejected", func(t *testing.T) {
+		_, err := Load(writeTemp(t, persona+"lifetimes:\n  id_token: -5m\n"))
+		if !errors.Is(err, errNegativeLifetime) {
+			t.Fatalf("Load = %v, want errNegativeLifetime", err)
+		}
+	})
+
+	t.Run("malformed duration rejected", func(t *testing.T) {
+		if _, err := Load(writeTemp(t, persona+"lifetimes:\n  access_token: fast\n")); err == nil {
+			t.Fatal("Load accepted a malformed duration")
 		}
 	})
 }

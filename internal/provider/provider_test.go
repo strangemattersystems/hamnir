@@ -35,9 +35,12 @@ func TestCryptoKey(t *testing.T) {
 func providerHandler(p *op.Provider) http.Handler { return p }
 
 func TestProvider(t *testing.T) {
-	cfg := &config.Config{Personas: []config.Persona{
-		{Claims: map[string]any{"sub": "usr_alice", "email": "a@b.test"}},
-	}}
+	cfg := &config.Config{
+		Personas: []config.Persona{
+			{Claims: map[string]any{"sub": "usr_alice", "email": "a@b.test"}},
+		},
+		Lifetimes: config.DefaultLifetimes,
+	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +128,7 @@ func TestNewProvider_BrowserURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			*op.DefaultEndpoints = snapshot // reset the global before each case
-			cfg := &config.Config{Issuer: issuer, BrowserURL: tt.browserURL}
+			cfg := &config.Config{Issuer: issuer, BrowserURL: tt.browserURL, Lifetimes: config.DefaultLifetimes}
 			key, err := rsa.GenerateKey(rand.Reader, 2048)
 			if err != nil {
 				t.Fatal(err)
