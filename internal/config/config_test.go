@@ -221,6 +221,37 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 	})
 }
 
+func TestConfig_Validate_Clients(t *testing.T) {
+	tests := []struct {
+		name    string
+		clients []Client
+		wantErr error
+	}{
+		{"ok", []Client{{ID: "isen", RedirectURIs: []string{"http://app.test/cb"}}}, nil},
+		{"missing id", []Client{{RedirectURIs: []string{"http://app.test/cb"}}}, errEmptyClientID},
+		{"duplicate id", []Client{
+			{ID: "isen", RedirectURIs: []string{"http://app.test/cb"}},
+			{ID: "isen", RedirectURIs: []string{"http://other.test/cb"}},
+		}, errDuplicateClientID},
+		{"no redirect uris", []Client{{ID: "isen"}}, errNoRedirectURIs},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Clients: tt.clients, Personas: []Persona{{Claims: map[string]any{"sub": "s"}}}}
+			if err := cfg.Validate(); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Validate() err = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoad_CollidingStaticMounts(t *testing.T) {
+	yaml := "static:\n  paths:\n    avatars: ./team\n    /avatars: ./customers\npersonas:\n  - claims: { sub: s }\n"
+	if _, err := Load(writeTemp(t, yaml)); !errors.Is(err, errDuplicateStaticMount) {
+		t.Fatalf("Load() err = %v, want errDuplicateStaticMount", err)
+	}
+}
+
 func TestConfig_Validate_Static(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -230,6 +261,7 @@ func TestConfig_Validate_Static(t *testing.T) {
 		{"ok", Static{Prefix: "hamnir://", Paths: map[string]string{"avatars": "./a"}}, nil},
 		{"empty mount", Static{Prefix: "hamnir://", Paths: map[string]string{"": "./a"}}, errEmptyStaticMount},
 		{"traversal mount", Static{Prefix: "hamnir://", Paths: map[string]string{"../x": "./a"}}, errStaticMountTraversal},
+		{"slash mount", Static{Prefix: "hamnir://", Paths: map[string]string{"img/avatars": "./a"}}, errStaticMountSlash},
 		{"empty dir", Static{Prefix: "hamnir://", Paths: map[string]string{"avatars": ""}}, errEmptyStaticDir},
 	}
 	for _, tt := range tests {

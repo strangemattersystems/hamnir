@@ -11,6 +11,11 @@
       "format": "uri",
       "description": "OIDC issuer URL. Omit to derive the issuer per-request from the request host — this is what lets a browser (http://localhost:5556) and an in-cluster caller (http://hamnir:5556) each receive an issuer they can reach."
     },
+    "browser_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Browser-facing base URL, for split front/back-channel setups where the browser reaches hamnir at a different address than backend callers (e.g. http://localhost:5556 vs http://hamnir:5556 in docker-compose). Browser-facing endpoints (authorize, end_session) and static asset URLs are advertised at this base; token, userinfo and jwks stay on the issuer. Requires a static issuer."
+    },
     "clients": {
       "type": "array",
       "description": "Registered OAuth clients. Providing any client puts hamnir in strict mode: only these client_ids and their exact redirect URIs are accepted. Omit the whole block for permissive dev mode (any client_id and redirect_uri).",

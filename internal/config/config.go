@@ -53,7 +53,9 @@ func Load(path string) (*Config, error) {
 	if err := yaml.UnmarshalWithOptions(raw, &cfg, yaml.DisallowUnknownField()); err != nil {
 		return nil, fmt.Errorf("parsing config file %q: %w", path, err)
 	}
-	cfg.normalise()
+	if err := cfg.normalise(); err != nil {
+		return nil, fmt.Errorf("invalid config %q: %w", path, err)
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config %q: %w", path, err)
 	}
@@ -65,19 +67,25 @@ func Load(path string) (*Config, error) {
 
 // normalise canonicalises the parsed config: the base URLs lose a trailing
 // "/", each static mount key loses a single leading "/" (so "/avatars" and
-// "avatars" are equivalent), and the substitution prefix gets its default.
-// Everything downstream of Load can rely on these forms.
-func (c *Config) normalise() {
+// "avatars" are equivalent — configuring both is an error, not a silent
+// collapse), and the substitution prefix gets its default. Everything
+// downstream of Load can rely on these forms.
+func (c *Config) normalise() error {
 	c.Issuer = strings.TrimSuffix(c.Issuer, "/")
 	c.BrowserURL = strings.TrimSuffix(c.BrowserURL, "/")
 	if len(c.Static.Paths) > 0 {
 		norm := make(map[string]string, len(c.Static.Paths))
 		for k, v := range c.Static.Paths {
-			norm[strings.TrimPrefix(k, "/")] = v
+			mount := strings.TrimPrefix(k, "/")
+			if _, exists := norm[mount]; exists {
+				return fmt.Errorf("static mount %q: %w", mount, errDuplicateStaticMount)
+			}
+			norm[mount] = v
 		}
 		c.Static.Paths = norm
 	}
 	if c.Static.Prefix == "" {
 		c.Static.Prefix = "hamnir://"
 	}
+	return nil
 }

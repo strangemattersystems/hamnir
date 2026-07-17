@@ -18,12 +18,31 @@ var (
 	errInvalidURL            = errors.New("invalid url")
 	errEmptyStaticMount      = errors.New("empty static mount")
 	errStaticMountTraversal  = errors.New(".. is not allowed in a mount name")
+	errStaticMountSlash      = errors.New("\"/\" is not allowed in a mount name")
 	errEmptyStaticDir        = errors.New("empty static directory")
+	errDuplicateStaticMount  = errors.New("duplicate static mount")
+	errEmptyClientID         = errors.New("empty client id")
+	errDuplicateClientID     = errors.New("duplicate client id")
+	errNoRedirectURIs        = errors.New("client has no redirect_uris")
 )
 
 var hexColour = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 func (c *Config) Validate() error {
+	clientIDs := map[string]bool{}
+	for i, cl := range c.Clients {
+		if cl.ID == "" {
+			return fmt.Errorf("client #%d: %w", i+1, errEmptyClientID)
+		}
+		if clientIDs[cl.ID] {
+			return fmt.Errorf("client %q: %w", cl.ID, errDuplicateClientID)
+		}
+		clientIDs[cl.ID] = true
+		if len(cl.RedirectURIs) == 0 {
+			return fmt.Errorf("client %q: %w", cl.ID, errNoRedirectURIs)
+		}
+	}
+
 	groupIDs := map[string]bool{}
 	for i, g := range c.Groups {
 		if g.ID == "" {
@@ -70,6 +89,11 @@ func (c *Config) Validate() error {
 		}
 		if strings.Contains(mount, "..") {
 			return fmt.Errorf("static mount %q: %w", mount, errStaticMountTraversal)
+		}
+		// Claim references are split at the first "/" (<mount>/<file>), so a
+		// mount name containing one would be servable yet unreferenceable.
+		if strings.Contains(mount, "/") {
+			return fmt.Errorf("static mount %q: %w", mount, errStaticMountSlash)
 		}
 		if dir == "" {
 			return fmt.Errorf("static mount %q: %w", mount, errEmptyStaticDir)
