@@ -31,11 +31,24 @@ func TestValidate(t *testing.T) {
 				"personas:\n  - name: A\n    claims:\n      sub: a\n      picture: hamnir://avatars/missing.svg\n",
 			wantErr: true,
 		},
+		{
+			name:    "missing signing key",
+			yaml:    "personas:\n  - name: A\n    claims:\n      sub: a\n",
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "hamnir.yaml")
-			if err := os.WriteFile(p, []byte(tt.yaml), 0o644); err != nil {
+			body := tt.yaml
+			if tt.name != "missing signing key" {
+				key, err := testSigningKey()
+				if err != nil {
+					t.Fatal(err)
+				}
+				body += "signing_key: " + key + "\n"
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			var buf bytes.Buffer

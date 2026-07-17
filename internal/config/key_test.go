@@ -7,6 +7,8 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -63,11 +65,10 @@ func TestConfig_parseSigningKey(t *testing.T) {
 		})
 	}
 
-	// Interim behaviour until Task 3 flips the requirement: empty is allowed.
-	t.Run("empty is not yet an error", func(t *testing.T) {
+	t.Run("missing key", func(t *testing.T) {
 		cfg := &Config{}
-		if err := cfg.parseSigningKey(); err != nil {
-			t.Fatalf("parseSigningKey() on empty = %v, want nil (until Task 3)", err)
+		if err := cfg.parseSigningKey(); !errors.Is(err, errMissingSigningKey) {
+			t.Fatalf("parseSigningKey() = %v, want errMissingSigningKey", err)
 		}
 	})
 }
@@ -89,6 +90,16 @@ func TestLoad_SigningKey(t *testing.T) {
 		_, err := Load(writeTemp(t, "personas:\n  - claims: { sub: s }\nsigning_key: not!!base64\n"))
 		if !errors.Is(err, errInvalidSigningKey) {
 			t.Fatalf("Load = %v, want errInvalidSigningKey", err)
+		}
+	})
+
+	t.Run("missing key surfaces from Load", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "hamnir.yaml")
+		if err := os.WriteFile(p, []byte("personas:\n  - claims: { sub: s }\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(p); !errors.Is(err, errMissingSigningKey) {
+			t.Fatalf("Load = %v, want errMissingSigningKey", err)
 		}
 	})
 }

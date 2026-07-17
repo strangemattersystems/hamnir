@@ -42,10 +42,9 @@ func run() int {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "config", Value: "./hamnir.yaml", Usage: "path to config file"},
 					&cli.StringFlag{Name: "addr", Value: "127.0.0.1:5556", Usage: "listen address"},
-					&cli.StringFlag{Name: "key-file", Value: "./.hamnir/key.pem", Usage: "signing key path"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					return command.Serve(ctx, cmd.String("config"), cmd.String("addr"), cmd.String("key-file"))
+					return command.Serve(ctx, cmd.String("config"), cmd.String("addr"))
 				},
 			},
 			{

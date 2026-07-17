@@ -4,11 +4,26 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 )
 
+// testSigningKey is generated once; RSA-2048 generation is too slow to repeat
+// in every subtest.
+var testSigningKey = sync.OnceValues(GenerateSigningKey)
+
+// writeTemp writes body to a temp config file, appending a valid signing_key
+// unless the body brings its own (so key-specific tests stay in control).
 func writeTemp(t *testing.T, body string) string {
 	t.Helper()
+	if !strings.Contains(body, "signing_key:") {
+		key, err := testSigningKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		body += "\nsigning_key: " + key + "\n"
+	}
 	p := filepath.Join(t.TempDir(), "hamnir.yaml")
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -84,12 +99,17 @@ personas:
 func TestLoad_StaticDefaultsAndNormalises(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.yaml")
+	key, err := testSigningKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 	yaml := `
 static:
   paths:
     /avatars: ./avatars
 personas:
   - claims: { sub: usr_alice }
+signing_key: ` + key + `
 `
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)

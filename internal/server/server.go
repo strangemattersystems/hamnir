@@ -1,7 +1,6 @@
 package server
 
 import (
-	"crypto/rsa"
 	"net/http"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
@@ -17,9 +16,9 @@ import (
 // specific routes (/login, /login/select, /static/) take precedence.
 // cfg must come from config.Load, which normalises URLs and resolves
 // hamnir:// style static claim references.
-func New(cfg *config.Config, key *rsa.PrivateKey) (http.Handler, error) {
+func New(cfg *config.Config) (http.Handler, error) {
 	set := persona.NewSet(cfg)
-	st, err := provider.NewStorage(cfg, set, key)
+	st, err := provider.NewStorage(cfg, set, cfg.Key)
 	if err != nil {
 		return nil, err
 	}

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"testing"
 
 	"github.com/zitadel/oidc/v3/pkg/op"
@@ -39,7 +38,7 @@ func TestProvider(t *testing.T) {
 	cfg := &config.Config{Personas: []config.Persona{
 		{Claims: map[string]any{"sub": "usr_alice", "email": "a@b.test"}},
 	}}
-	key, err := LoadOrGenerateKey(filepath.Join(t.TempDir(), "key.pem"))
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +126,7 @@ func TestNewProvider_BrowserURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			*op.DefaultEndpoints = snapshot // reset the global before each case
 			cfg := &config.Config{Issuer: issuer, BrowserURL: tt.browserURL}
-			key, err := LoadOrGenerateKey(filepath.Join(t.TempDir(), "key.pem"))
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
 			if err != nil {
 				t.Fatal(err)
 			}

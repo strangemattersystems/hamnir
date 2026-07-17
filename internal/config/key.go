@@ -9,7 +9,10 @@ import (
 	"fmt"
 )
 
-var errInvalidSigningKey = errors.New("invalid signing_key")
+var (
+	errInvalidSigningKey = errors.New("invalid signing_key")
+	errMissingSigningKey = errors.New(`missing signing_key (run "hamnir init" to create a config, or add one)`)
+)
 
 // GenerateSigningKey returns a freshly generated RSA-2048 private key encoded
 // as a signing_key config value: standard base64 of the PKCS#8 DER, no PEM
@@ -27,11 +30,10 @@ func GenerateSigningKey() (string, error) {
 	return base64.StdEncoding.EncodeToString(der), nil
 }
 
-// parseSigningKey decodes SigningKey into Key. Until serve consumes the
-// config key (Task 3 of the migration), an absent key is allowed.
+// parseSigningKey decodes SigningKey into Key.
 func (c *Config) parseSigningKey() error {
 	if c.SigningKey == "" {
-		return nil
+		return errMissingSigningKey
 	}
 	der, err := base64.StdEncoding.DecodeString(c.SigningKey)
 	if err != nil {

@@ -6,6 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "dependentRequired": { "browser_url": ["issuer"] },
+  "required": ["signing_key"],
   "properties": {
     "issuer": {
       "type": "string",
