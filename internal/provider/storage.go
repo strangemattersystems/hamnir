@@ -156,6 +156,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 		responseType:  authReq.ResponseType,
 		responseMode:  authReq.ResponseMode,
 		codeChallenge: codeChallenge(authReq),
+		audiences:     s.audienceFor(authReq.ClientID),
 		createdAt:     time.Now(),
 		subject:       userID,
 	}
@@ -308,7 +309,7 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	if err != nil {
 		return nil, err
 	}
-	return &refreshRequest{TokenClaims: rc}, nil
+	return &refreshRequest{TokenClaims: rc, audiences: s.audienceFor(rc.ClientID)}, nil
 }
 
 // TerminateSession ends the user's sessions with the given client (op derives
@@ -428,6 +429,29 @@ func (s *Storage) clientConfig(clientID string) (config.Client, bool) {
 		}
 	}
 	return config.Client{}, false
+}
+
+// audienceFor resolves the aud values for tokens minted to clientID: the
+// client's audiences if the field is set, else the global list, else nil —
+// meaning op's default aud of [client_id] applies. An explicitly empty
+// client list opts out of the global list back to that default.
+func (s *Storage) audienceFor(clientID string) []string {
+	for _, c := range s.cfg.Clients {
+		if c.ID != clientID {
+			continue
+		}
+		if c.Audiences != nil {
+			if len(c.Audiences) == 0 {
+				return nil
+			}
+			return c.Audiences
+		}
+		break
+	}
+	if len(s.cfg.Audiences) > 0 {
+		return s.cfg.Audiences
+	}
+	return nil
 }
 
 func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientSecret string) error {

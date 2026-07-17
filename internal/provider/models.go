@@ -30,6 +30,7 @@ type authRequest struct {
 	responseType  oidc.ResponseType
 	responseMode  oidc.ResponseMode
 	codeChallenge *oidc.CodeChallenge
+	audiences     []string // resolved aud values; nil -> default [clientID]
 	createdAt     time.Time
 	code          string // authorization code, once issued (reverse index into Storage.codes)
 
@@ -41,9 +42,14 @@ type authRequest struct {
 
 var _ op.AuthRequest = (*authRequest)(nil)
 
-func (a *authRequest) GetID() string                         { return a.id }
-func (a *authRequest) GetACR() string                        { return "" }
-func (a *authRequest) GetAudience() []string                 { return []string{a.clientID} }
+func (a *authRequest) GetID() string  { return a.id }
+func (a *authRequest) GetACR() string { return "" }
+func (a *authRequest) GetAudience() []string {
+	if len(a.audiences) > 0 {
+		return a.audiences
+	}
+	return []string{a.clientID}
+}
 func (a *authRequest) GetAuthTime() time.Time                { return a.authTime }
 func (a *authRequest) GetClientID() string                   { return a.clientID }
 func (a *authRequest) GetCodeChallenge() *oidc.CodeChallenge { return a.codeChallenge }
@@ -67,12 +73,20 @@ func (a *authRequest) GetAMR() []string {
 // (self-contained) refresh token during the refresh grant.
 type refreshRequest struct {
 	TokenClaims
+	audiences []string // resolved aud values; nil -> default [ClientID]
 }
 
 var _ op.RefreshTokenRequest = (*refreshRequest)(nil)
 
-func (r *refreshRequest) GetAMR() []string            { return []string{"pwd"} }
-func (r *refreshRequest) GetAudience() []string       { return []string{r.ClientID} }
+func (r *refreshRequest) GetAMR() []string { return []string{"pwd"} }
+
+func (r *refreshRequest) GetAudience() []string {
+	if len(r.audiences) > 0 {
+		return r.audiences
+	}
+	return []string{r.ClientID}
+}
+
 func (r *refreshRequest) GetAuthTime() time.Time      { return time.Time{} }
 func (r *refreshRequest) GetClientID() string         { return r.ClientID }
 func (r *refreshRequest) GetScopes() []string         { return r.Scopes }
