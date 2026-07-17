@@ -25,6 +25,9 @@ const (
 	accessTokenLifetime = 5 * time.Minute
 	// idTokenLifetime is the lifetime of issued id tokens.
 	idTokenLifetime = time.Hour
+	// authRequestTTL is how long an unexchanged /authorize flow may sit in the
+	// picker before its auth request (and code) are considered abandoned.
+	authRequestTTL = 15 * time.Minute
 )
 
 // errNotSupported is returned by op.Storage methods for flows hamnir does not
@@ -45,10 +48,10 @@ type Storage struct {
 	signing  *signingKey
 
 	mu           sync.Mutex
-	authRequests map[string]*authRequest     // id -> request
-	codes        map[string]string           // authorization code -> request id
-	accessTokens map[string]*accessTokenInfo // jti -> token metadata
-	sessions     map[string]map[string]bool  // subject -> set of active sids
+	authRequests map[string]*authRequest         // id -> request
+	codes        map[string]string               // authorization code -> request id
+	accessTokens map[string]*accessTokenInfo     // jti -> token metadata
+	sessions     map[string]map[string]time.Time // subject -> active sid -> login time
 }
 
 // accessTokenInfo is the metadata retained for a JWT access token so that the
@@ -80,7 +83,7 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 		authRequests: make(map[string]*authRequest),
 		codes:        make(map[string]string),
 		accessTokens: make(map[string]*accessTokenInfo),
-		sessions:     make(map[string]map[string]bool),
+		sessions:     make(map[string]map[string]time.Time),
 	}, nil
 }
 
@@ -102,10 +105,23 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 	req.authTime = time.Now()
 	req.done = true
 
-	if s.sessions[sub] == nil {
-		s.sessions[sub] = make(map[string]bool)
+	// Prune sids older than the refresh TTL: every token that could carry them
+	// has expired, so they only exist to bloat the map and slow logout.
+	now := req.authTime
+	for subject, sids := range s.sessions {
+		for old, at := range sids {
+			if now.Sub(at) > refreshTokenTTL {
+				delete(sids, old)
+			}
+		}
+		if len(sids) == 0 {
+			delete(s.sessions, subject)
+		}
 	}
-	s.sessions[sub][sid] = true
+	if s.sessions[sub] == nil {
+		s.sessions[sub] = make(map[string]time.Time)
+	}
+	s.sessions[sub][sid] = req.authTime
 	return nil
 }
 
@@ -129,6 +145,17 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 	}
 
 	s.mu.Lock()
+	// Evict abandoned flows (picker opened, persona never selected or code
+	// never exchanged) so the maps stay bounded over a long-running server.
+	now := time.Now()
+	for id, r := range s.authRequests {
+		if now.Sub(r.createdAt) > authRequestTTL {
+			delete(s.authRequests, id)
+			if r.code != "" {
+				delete(s.codes, r.code)
+			}
+		}
+	}
 	s.authRequests[req.id] = req
 	s.mu.Unlock()
 	return req, nil
@@ -161,6 +188,11 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 func (s *Storage) SaveAuthCode(ctx context.Context, id string, code string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	req, ok := s.authRequests[id]
+	if !ok {
+		return fmt.Errorf("auth request %q not found", id)
+	}
+	req.code = code
 	s.codes[code] = id
 	return nil
 }
@@ -168,10 +200,10 @@ func (s *Storage) SaveAuthCode(ctx context.Context, id string, code string) erro
 func (s *Storage) DeleteAuthRequest(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.authRequests, id)
-	for code, reqID := range s.codes {
-		if reqID == id {
-			delete(s.codes, code)
+	if req, ok := s.authRequests[id]; ok {
+		delete(s.authRequests, id)
+		if req.code != "" {
+			delete(s.codes, req.code)
 		}
 	}
 	return nil
@@ -206,8 +238,15 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 
 func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration time.Time) {
 	jti = randID()
-	exp := time.Now().Add(accessTokenLifetime)
+	now := time.Now()
 	s.mu.Lock()
+	// Evict expired tokens; nothing can resolve them any more.
+	for old, i := range s.accessTokens {
+		if i.expiration.Before(now) {
+			delete(s.accessTokens, old)
+		}
+	}
+	exp := now.Add(accessTokenLifetime)
 	s.accessTokens[jti] = &accessTokenInfo{TokenClaims: info, expiration: exp}
 	s.mu.Unlock()
 	return jti, exp

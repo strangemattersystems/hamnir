@@ -26,6 +26,7 @@ type authRequest struct {
 	responseMode  oidc.ResponseMode
 	codeChallenge *oidc.CodeChallenge
 	createdAt     time.Time
+	code          string // authorization code, once issued (reverse index into Storage.codes)
 
 	subject  string
 	sid      string
