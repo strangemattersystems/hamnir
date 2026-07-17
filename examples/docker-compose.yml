@@ -1,24 +1,31 @@
 services:
   hamnir:
+    # we build from source (we're in the repo) but you can use the published image
+    # instead, comment out the `build:` block below and uncomment this line:
+    # image: ghcr.io/strangemattersystems/hamnir:latest
     build:
       context: ..
       dockerfile: Dockerfile
     environment:
+      # the path to the hamnir configuration file, you'll likely be mounting one
+      # you've created via `hamnir init` and configured for your needs
       HAMNIR_CONFIG: /etc/hamnir/hamnir.yaml
     volumes:
+      # the hamnir configuration file, can be read-only
       - ./hamnir.yaml:/etc/hamnir/hamnir.yaml:ro
+      # the avatar images that we configure to be served, can also be read-only
       - ./avatars:/etc/hamnir/avatars:ro
     ports:
       - "5556:5556"
 
+  # this is an example app taking the place of your real app which has to talk
+  # OIDC to authenticate users and get their claims
   webapp:
     build:
       context: ./webapp
     environment:
+      # where to find the hamnir server - just the service name and default port
       HAMNIR_URL: http://hamnir:5556
-      CLIENT_ID: example-webapp
-      REDIRECT_URI: http://localhost:8080/callback
-      ADDR: ":8080"
     ports:
       - "8080:8080"
     depends_on:

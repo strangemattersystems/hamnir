@@ -21,15 +21,28 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// These OIDC client settings must match the "example-webapp" client registered
+// in examples/hamnir.yaml: hamnir runs in strict client mode, so it rejects the
+// authorization request unless the relying party presents them verbatim. They
+// are hardcoded rather than env-configured because they are the app's identity,
+// not deployment wiring — visible here beside the config they mirror. Where the
+// app reaches hamnir is different: that is Compose-network topology, so it comes
+// from the environment (see main).
+const (
+	clientID    = "example-webapp"                 // matches hamnir.yaml clients[].id
+	redirectURI = "http://localhost:8080/callback" // matches hamnir.yaml clients[].redirect_uris
+	addr        = ":8080"                          // listen address; mirrors the Compose ports mapping
+)
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
-	var (
-		hamnirURL   = env("HAMNIR_URL", "http://hamnir:5556")
-		clientID    = env("CLIENT_ID", "example-webapp")
-		redirectURI = env("REDIRECT_URI", "http://localhost:8080/callback")
-		addr        = env("ADDR", ":8080")
-	)
+	// we configured where to find the hamnir server in the docker-compose.yml file
+	hamnirURL := os.Getenv("HAMNIR_URL")
+	if hamnirURL == "" {
+		slog.Error("HAMNIR_URL is not set")
+		os.Exit(1)
+	}
 
 	a, err := discoverAndConfigure(context.Background(), hamnirURL, clientID, redirectURI)
 	if err != nil {
@@ -184,13 +197,6 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		"IDTokenClaims":  string(pretty),
 		"UserinfoClaims": string(prettyUserinfo),
 	})
-}
-
-func env(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
 
 func randString() string {
