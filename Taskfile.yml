@@ -27,6 +27,12 @@ tasks:
     cmds:
       - go build -ldflags '{{.LDFLAGS}}' -o {{.BINARY}} ./cmd/hamnir
 
+  exec:
+    desc: Build and run the hamnir binary (e.g. task exec -- serve --config examples/hamnir.yaml)
+    cmds:
+      - task: build
+      - ./{{.BINARY}} {{.CLI_ARGS}}
+
   test:
     desc: Run the test suite with the race detector and coverage
     cmds:
