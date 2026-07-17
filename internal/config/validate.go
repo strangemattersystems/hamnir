@@ -23,12 +23,14 @@ var (
 	errDuplicateStaticMount  = errors.New("duplicate static mount")
 	errEmptyClientID         = errors.New("empty client id")
 	errDuplicateClientID     = errors.New("duplicate client id")
-	errNoRedirectURIs        = errors.New("client has no redirect_uris")
 )
 
 var hexColour = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 func (c *Config) Validate() error {
+	// Redirect URIs are deliberately NOT required: a back-channel-only client
+	// (introspection/revocation) authenticates with id + secret and never
+	// performs a redirect flow.
 	clientIDs := map[string]bool{}
 	for i, cl := range c.Clients {
 		if cl.ID == "" {
@@ -38,9 +40,6 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("client %q: %w", cl.ID, errDuplicateClientID)
 		}
 		clientIDs[cl.ID] = true
-		if len(cl.RedirectURIs) == 0 {
-			return fmt.Errorf("client %q: %w", cl.ID, errNoRedirectURIs)
-		}
 	}
 
 	groupIDs := map[string]bool{}

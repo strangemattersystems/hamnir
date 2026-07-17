@@ -2,14 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json",
   "title": "hamnir config",
-  "description": "Configuration for hamnir, a persona-first OIDC dev provider. Note: referential rules (persona.group must match a groups[].id, and sub must be unique across personas) are enforced by hamnir at load time, not by this schema.",
+  "description": "Configuration for hamnir, a persona-first OIDC dev provider. Note: cross-referential rules (persona.group must match a groups[].id, sub unique across personas, client ids unique, static mount keys not colliding after leading-slash normalisation) are enforced by hamnir at load time, not by this schema.",
   "type": "object",
   "additionalProperties": false,
+  "dependentRequired": { "browser_url": ["issuer"] },
   "properties": {
     "issuer": {
       "type": "string",
       "format": "uri",
-      "description": "OIDC issuer URL. Omit to derive the issuer per-request from the request host — this is what lets a browser (http://localhost:5556) and an in-cluster caller (http://hamnir:5556) each receive an issuer they can reach."
+      "description": "OIDC issuer URL. Omit to derive the issuer per-request from the request host — handy when every caller reaches hamnir at one address (plain localhost, a port-forward). Do NOT rely on it for split setups where a browser and a backend use different hosts: discovery advertises endpoints at whichever host performed discovery, so mixed flows break. For split front/back-channel setups set issuer plus browser_url instead."
     },
     "browser_url": {
       "type": "string",
@@ -50,8 +51,9 @@
         },
         "paths": {
           "type": "object",
-          "description": "Map of mount name to local directory. Each is served under /.static/<mount>/. Reference a file as <prefix><mount>/<file>.",
-          "additionalProperties": { "type": "string" }
+          "description": "Map of mount name to local directory. Each is served under /.static/<mount>/. Reference a file as <prefix><mount>/<file>. Mount names must be non-empty and must not contain \"/\" or \"..\" (a single leading \"/\" is tolerated and stripped).",
+          "propertyNames": { "pattern": "^/?(?!.*\\.\\.)[^/]+$" },
+          "additionalProperties": { "type": "string", "minLength": 1 }
         }
       }
     }
@@ -64,11 +66,12 @@
       "properties": {
         "id": {
           "type": "string",
+          "minLength": 1,
           "description": "Client identifier (client_id)."
         },
         "redirect_uris": {
           "type": "array",
-          "description": "Exact redirect URIs permitted for this client.",
+          "description": "Exact redirect URIs permitted for this client. Omit for a back-channel-only client (introspection/revocation) that never performs a redirect flow.",
           "items": { "type": "string", "format": "uri" }
         },
         "post_logout_redirect_uris": {

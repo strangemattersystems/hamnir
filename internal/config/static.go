@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,5 +88,9 @@ func (c *Config) resolveRef(value string) (string, error) {
 	if err != nil || info.IsDir() {
 		return "", fmt.Errorf("%q: file not found under %q: %w", value, dir, ErrUnresolved)
 	}
-	return base + static.Root + mount + "/" + rest, nil
+	// Escape per path segment (spaces, '#', '%', …): net/http decodes %XX
+	// before mux matching and file lookup, so the escaped URL serves the
+	// same file the os.Stat above checked.
+	u := url.URL{Path: static.Root + mount + "/" + rest}
+	return base + u.EscapedPath(), nil
 }

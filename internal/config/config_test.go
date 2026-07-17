@@ -208,6 +208,21 @@ func TestLoad_ResolvesStaticClaims(t *testing.T) {
 		})
 	}
 
+	t.Run("special characters escaped", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(dir, "eve avatar.svg"), []byte("<svg/>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(writeTemp(t, "issuer: http://hamnir:5556\n"+static+
+			"personas:\n  - claims: { sub: usr_eve, picture: 'hamnir://avatars/eve avatar.svg' }\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		got := cfg.Personas[0].Claims["picture"]
+		if got != "http://hamnir:5556/.static/avatars/eve%20avatar.svg" {
+			t.Errorf("picture = %v, want the escaped URL", got)
+		}
+	})
+
 	t.Run("nested value resolved", func(t *testing.T) {
 		cfg, err := Load(writeTemp(t, "issuer: http://hamnir:5556\n"+static+
 			"personas:\n  - claims: { sub: usr_eve, profile: { avatar: hamnir://avatars/eve.svg } }\n"))
@@ -233,7 +248,9 @@ func TestConfig_Validate_Clients(t *testing.T) {
 			{ID: "isen", RedirectURIs: []string{"http://app.test/cb"}},
 			{ID: "isen", RedirectURIs: []string{"http://other.test/cb"}},
 		}, errDuplicateClientID},
-		{"no redirect uris", []Client{{ID: "isen"}}, errNoRedirectURIs},
+		// A back-channel-only client (introspection/revocation) never
+		// redirects; id + secret is a complete registration.
+		{"redirect-less client ok", []Client{{ID: "introspector", Secret: "s3cret"}}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
