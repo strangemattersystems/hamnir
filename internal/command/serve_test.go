@@ -5,15 +5,27 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/strangemattersystems/hamnir/internal/config"
 )
+
+// testSigningKey is generated once; RSA-2048 generation is too slow to repeat
+// per test.
+var testSigningKey = sync.OnceValues(config.GenerateSigningKey)
 
 // writeValidConfig writes a minimal single-persona config and returns its path.
 func writeValidConfig(t *testing.T) string {
 	t.Helper()
+	key, err := testSigningKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 	p := filepath.Join(t.TempDir(), "hamnir.yaml")
-	if err := os.WriteFile(p, []byte("personas:\n  - name: A\n    claims:\n      sub: a\n"), 0o644); err != nil {
+	body := "personas:\n  - name: A\n    claims:\n      sub: a\nsigning_key: " + key + "\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return p
@@ -48,12 +60,11 @@ func waitReady(t *testing.T, addr string) {
 func TestServe(t *testing.T) {
 	t.Run("graceful shutdown", func(t *testing.T) {
 		cfg := writeValidConfig(t)
-		key := filepath.Join(t.TempDir(), "key.pem")
 		addr := freeAddr(t)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		errc := make(chan error, 1)
-		go func() { errc <- Serve(ctx, cfg, addr, key) }()
+		go func() { errc <- Serve(ctx, cfg, addr) }()
 
 		waitReady(t, addr)
 		cancel()
@@ -70,7 +81,6 @@ func TestServe(t *testing.T) {
 
 	t.Run("addr in use", func(t *testing.T) {
 		cfg := writeValidConfig(t)
-		key := filepath.Join(t.TempDir(), "key.pem")
 
 		l, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
@@ -78,7 +88,7 @@ func TestServe(t *testing.T) {
 		}
 		defer func() { _ = l.Close() }()
 
-		if err := Serve(t.Context(), cfg, l.Addr().String(), key); err == nil {
+		if err := Serve(t.Context(), cfg, l.Addr().String()); err == nil {
 			t.Fatal("Serve returned nil, want error for in-use addr")
 		}
 	})

@@ -24,6 +24,15 @@ func main() {
 	os.Exit(run())
 }
 
+func configFlag(usage string) *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:    "config",
+		Value:   "./hamnir.yaml",
+		Usage:   usage,
+		Sources: cli.EnvVars("HAMNIR_CONFIG"),
+	}
+}
+
 func run() int {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
@@ -40,31 +49,34 @@ func run() int {
 				Name:  "serve",
 				Usage: "run the OIDC provider",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "config", Value: "./hamnir.yaml", Usage: "path to config file"},
-					&cli.StringFlag{Name: "addr", Value: "127.0.0.1:5556", Usage: "listen address"},
-					&cli.StringFlag{Name: "key-file", Value: "./.hamnir/key.pem", Usage: "signing key path"},
+					configFlag("path to config file"),
+					&cli.StringFlag{
+						Name:    "addr",
+						Value:   "127.0.0.1:5556",
+						Usage:   "listen address",
+						Sources: cli.EnvVars("HAMNIR_ADDR"),
+					},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					return command.Serve(ctx, cmd.String("config"), cmd.String("addr"), cmd.String("key-file"))
+					return command.Serve(ctx, cmd.String("config"), cmd.String("addr"))
 				},
 			},
 			{
 				Name:  "init",
-				Usage: "scaffold a minimal config and signing key",
+				Usage: "scaffold a minimal config",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "config", Value: "./hamnir.yaml", Usage: "path to config file to create"},
-					&cli.StringFlag{Name: "key-file", Value: "./.hamnir/key.pem", Usage: "signing key path to create"},
+					configFlag("path to config file to create"),
 					&cli.BoolFlag{Name: "force", Usage: "overwrite existing files"},
 				},
 				Action: func(_ context.Context, cmd *cli.Command) error {
-					return command.Init(os.Stdout, cmd.String("config"), cmd.String("key-file"), cmd.Bool("force"))
+					return command.Init(os.Stdout, cmd.String("config"), cmd.Bool("force"))
 				},
 			},
 			{
 				Name:  "validate",
 				Usage: "validate a config file without starting the server",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "config", Value: "./hamnir.yaml", Usage: "path to config file"},
+					configFlag("path to config file"),
 				},
 				Action: func(_ context.Context, cmd *cli.Command) error {
 					return command.Validate(os.Stdout, cmd.String("config"))

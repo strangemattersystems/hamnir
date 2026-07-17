@@ -20,12 +20,77 @@ func newTestStorage(t *testing.T) *Storage {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{Personas: []config.Persona{{Claims: map[string]any{"sub": "usr_alice"}}}}
+	cfg := &config.Config{
+		Personas:  []config.Persona{{Claims: map[string]any{"sub": "usr_alice"}}},
+		Lifetimes: config.DefaultLifetimes,
+	}
 	st, err := NewStorage(cfg, persona.NewSet(cfg), key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return st
+}
+
+// newTestStorageWithLifetimes is newTestStorage with configured token lifetimes.
+func newTestStorageWithLifetimes(t *testing.T, lt config.Lifetimes) *Storage {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Personas:  []config.Persona{{Claims: map[string]any{"sub": "usr_alice"}}},
+		Lifetimes: lt,
+	}
+	st, err := NewStorage(cfg, persona.NewSet(cfg), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+// The signing key's JWKS kid must be derived from the key itself, not chosen
+// per process: replicas and restarts sharing one configured key must
+// advertise one consistent kid, or strict-kid verifiers reject tokens minted
+// by a different process holding the same key.
+func TestNewStorage_KeyID(t *testing.T) {
+	key1, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key2, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+
+	newStorage := func(t *testing.T, key *rsa.PrivateKey) *Storage {
+		t.Helper()
+		st, err := NewStorage(cfg, persona.NewSet(cfg), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+
+	t.Run("same key same id", func(t *testing.T) {
+		first := newStorage(t, key1)
+		second := newStorage(t, key1)
+		if first.signing.id == "" {
+			t.Fatal("signing key id must not be empty")
+		}
+		if first.signing.id != second.signing.id {
+			t.Fatalf("signing key ids differ: %q vs %q", first.signing.id, second.signing.id)
+		}
+	})
+
+	t.Run("different key different id", func(t *testing.T) {
+		a := newStorage(t, key1)
+		b := newStorage(t, key2)
+		if a.signing.id == b.signing.id {
+			t.Fatal("signing key ids must differ for different keys")
+		}
+	})
 }
 
 // The in-memory stores must not grow without bound over a long-running dev
@@ -85,7 +150,7 @@ func TestStorage_Eviction(t *testing.T) {
 		st.mu.Lock()
 		for _, sids := range st.sessions {
 			for sid, sess := range sids {
-				sess.lastSeen = time.Now().Add(-refreshTokenTTL - time.Minute)
+				sess.lastSeen = time.Now().Add(-st.refresh.ttl - time.Minute)
 				sids[sid] = sess
 			}
 		}
@@ -148,7 +213,7 @@ func TestStorage_Sessions(t *testing.T) {
 		// silently refreshing for a day.
 		st.mu.Lock()
 		sess := st.sessions["usr_alice"][sid]
-		sess.lastSeen = time.Now().Add(-refreshTokenTTL - time.Minute)
+		sess.lastSeen = time.Now().Add(-st.refresh.ttl - time.Minute)
 		st.sessions["usr_alice"][sid] = sess
 		st.mu.Unlock()
 
@@ -447,4 +512,35 @@ func TestStorage_DeleteAuthRequest(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("codes map should be empty, have %d entries", n)
 	}
+}
+
+func TestNewStorage_ConfiguredLifetimes(t *testing.T) {
+	lt := config.Lifetimes{
+		AccessToken:  42 * time.Minute,
+		IDToken:      7 * time.Minute,
+		RefreshToken: 99 * time.Hour,
+	}
+	st := newTestStorageWithLifetimes(t, lt)
+
+	if st.refresh.ttl != lt.RefreshToken {
+		t.Errorf("refresh ttl = %v, want %v", st.refresh.ttl, lt.RefreshToken)
+	}
+
+	t.Run("access token expiry", func(t *testing.T) {
+		_, exp := st.storeAccessToken(TokenClaims{})
+		got := time.Until(exp)
+		if got < lt.AccessToken-time.Minute || got > lt.AccessToken+time.Minute {
+			t.Errorf("expiry in %v, want ~%v", got, lt.AccessToken)
+		}
+	})
+
+	t.Run("id token lifetime on clients", func(t *testing.T) {
+		c, err := st.GetClientByClientID(t.Context(), "any")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := c.IDTokenLifetime(); got != lt.IDToken {
+			t.Errorf("IDTokenLifetime = %v, want %v", got, lt.IDToken)
+		}
+	})
 }

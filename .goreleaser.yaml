@@ -48,15 +48,18 @@ changelog:
   sort: ""
   abbrev: -1
   groups:
-    - title: Features
-      regexp: '^.*?feat(\(.+\))??!?:.+$'
+    - title: Breaking changes
+      regexp: '^\S*\s?[a-zA-Z]+(\(.+\))?!:.+$'
       order: 0
-    - title: Bug fixes
-      regexp: '^.*?fix(\(.+\))??!?:.+$'
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??:.+$'
       order: 1
-    - title: Documentation
-      regexp: '^.*?docs(\(.+\))??!?:.+$'
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??:.+$'
       order: 2
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))??:.+$'
+      order: 3
     - title: Others
       order: 999
 

@@ -4,9 +4,6 @@
 # goreleaser dist directory
 /dist/
 
-# default hamnir runtime storage
-/.hamnir/
-
 # claude superpowers stuff
 .superpowers/
 

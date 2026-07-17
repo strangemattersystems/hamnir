@@ -2,12 +2,13 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,7 +16,6 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
-	"github.com/strangemattersystems/hamnir/internal/provider"
 )
 
 func TestEndToEnd(t *testing.T) {
@@ -384,11 +384,15 @@ func (e env) obtainCode(t *testing.T, cfg oauth2.Config, opts ...oauth2.AuthCode
 // authorization code out of the redirect.
 func newServer(t *testing.T, cfg *config.Config) (*httptest.Server, *http.Client) {
 	t.Helper()
-	key, err := provider.LoadOrGenerateKey(filepath.Join(t.TempDir(), "key.pem"))
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(cfg, key)
+	cfg.Key = key
+	if cfg.Lifetimes == (config.Lifetimes{}) {
+		cfg.Lifetimes = config.DefaultLifetimes
+	}
+	h, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

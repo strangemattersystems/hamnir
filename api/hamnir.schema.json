@@ -6,6 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "dependentRequired": { "browser_url": ["issuer"] },
+  "required": ["signing_key"],
   "properties": {
     "issuer": {
       "type": "string",
@@ -56,6 +57,29 @@
           "additionalProperties": { "type": "string", "minLength": 1 }
         }
       }
+    },
+    "lifetimes": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Lifetimes of issued tokens, as Go duration strings (e.g. \"90s\", \"5m\", \"24h\"). Tune these to mirror the IdP your app meets in production. Omit a field to use its default.",
+      "properties": {
+        "access_token": {
+          "type": "string",
+          "description": "Access token lifetime. Defaults to 5m."
+        },
+        "id_token": {
+          "type": "string",
+          "description": "ID token lifetime. Defaults to 1h."
+        },
+        "refresh_token": {
+          "type": "string",
+          "description": "Refresh token lifetime. Each rotation issues a fresh token with this full lifetime, so an actively-refreshing session slides forward; it also bounds how long an idle session survives. Defaults to 24h."
+        }
+      }
+    },
+    "signing_key": {
+      "type": "string",
+      "description": "The provider's RSA-2048 token signing key: standard base64 of the PKCS#8 DER, one line, no PEM armor. hamnir is a development-only provider — this key protects nothing real and is intended to be committed with the rest of the config so every developer and replica runs a byte-identical IdP. Generate with \"hamnir init\"."
     }
   },
   "$defs": {

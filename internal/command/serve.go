@@ -9,13 +9,12 @@ import (
 	"time"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
-	"github.com/strangemattersystems/hamnir/internal/provider"
 	"github.com/strangemattersystems/hamnir/internal/server"
 )
 
 const shutdownTimeout = 10 * time.Second
 
-func Serve(ctx context.Context, configPath, addr, keyFile string) error {
+func Serve(ctx context.Context, configPath, addr string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -24,12 +23,7 @@ func Serve(ctx context.Context, configPath, addr, keyFile string) error {
 		slog.Warn("permissive dev mode — accepting any client_id and redirect_uri; DEV ONLY, do not expose to untrusted networks")
 	}
 
-	key, err := provider.LoadOrGenerateKey(keyFile)
-	if err != nil {
-		return fmt.Errorf("load signing key: %w", err)
-	}
-
-	h, err := server.New(cfg, key)
+	h, err := server.New(cfg)
 	if err != nil {
 		return fmt.Errorf("build server: %w", err)
 	}
