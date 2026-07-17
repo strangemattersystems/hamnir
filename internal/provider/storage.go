@@ -434,7 +434,9 @@ func (s *Storage) clientConfig(clientID string) (config.Client, bool) {
 // audienceFor resolves the aud values for tokens minted to clientID: the
 // client's audiences if the field is set, else the global list, else nil —
 // meaning op's default aud of [client_id] applies. An explicitly empty
-// client list opts out of the global list back to that default.
+// client list opts out of the global list back to that default. The result
+// is a clone: op appends the client id to it when minting id tokens, which
+// must never write into the config-backed slices shared across requests.
 func (s *Storage) audienceFor(clientID string) []string {
 	for _, c := range s.cfg.Clients {
 		if c.ID != clientID {
@@ -444,12 +446,12 @@ func (s *Storage) audienceFor(clientID string) []string {
 			if len(c.Audiences) == 0 {
 				return nil
 			}
-			return c.Audiences
+			return slices.Clone(c.Audiences)
 		}
 		break
 	}
 	if len(s.cfg.Audiences) > 0 {
-		return s.cfg.Audiences
+		return slices.Clone(s.cfg.Audiences)
 	}
 	return nil
 }
