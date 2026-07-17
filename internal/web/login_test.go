@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -50,7 +51,11 @@ func submitSelection(h *Handler, form url.Values) *httptest.ResponseRecorder {
 }
 
 func TestHandler_getLogin(t *testing.T) {
+	t.Parallel()
+
 	t.Run("renders the picker", func(t *testing.T) {
+		t.Parallel()
+
 		rec := getLoginPage(newTestHandler(func(_, _ string) error { return nil }))
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Alice") {
 			t.Fatalf("expected picker with Alice, got %d body=%s", rec.Code, rec.Body.String())
@@ -58,6 +63,8 @@ func TestHandler_getLogin(t *testing.T) {
 	})
 
 	t.Run("with a picture renders an avatar image", func(t *testing.T) {
+		t.Parallel()
+
 		h := newHandlerWith(config.Persona{Name: "Eve", Claims: map[string]any{
 			"sub": "usr_eve", "picture": "http://h/.static/avatars/eve.svg",
 		}})
@@ -67,6 +74,8 @@ func TestHandler_getLogin(t *testing.T) {
 	})
 
 	t.Run("without a picture shows the initial placeholder", func(t *testing.T) {
+		t.Parallel()
+
 		h := newHandlerWith(config.Persona{Name: "Bob", Claims: map[string]any{"sub": "usr_bob"}})
 		out := getLoginPage(h).Body.String()
 		if strings.Contains(out, `<img class="avatar"`) {
@@ -78,6 +87,8 @@ func TestHandler_getLogin(t *testing.T) {
 	})
 
 	t.Run("render failure yields 500", func(t *testing.T) {
+		t.Parallel()
+
 		cfg := &config.Config{Personas: []config.Persona{{Name: "Alice", Claims: map[string]any{"sub": "usr_alice"}}}}
 		h := &Handler{
 			set:  persona.NewSet(cfg),
@@ -93,7 +104,11 @@ func TestHandler_getLogin(t *testing.T) {
 }
 
 func TestHandler_postSelect(t *testing.T) {
+	t.Parallel()
+
 	t.Run("valid selection redirects to the callback", func(t *testing.T) {
+		t.Parallel()
+
 		var got string
 		h := newTestHandler(func(_, sub string) error { got = sub; return nil })
 		rec := submitSelection(h, url.Values{"authRequestID": {"abc"}, "sub": {"usr_alice"}})
@@ -110,6 +125,8 @@ func TestHandler_postSelect(t *testing.T) {
 	})
 
 	t.Run("expired auth request gets a friendly 400", func(t *testing.T) {
+		t.Parallel()
+
 		h := newTestHandler(func(_, _ string) error {
 			return fmt.Errorf("auth request %q: %w", "abc", provider.ErrAuthRequestNotFound)
 		})
@@ -123,15 +140,67 @@ func TestHandler_postSelect(t *testing.T) {
 	})
 
 	t.Run("unknown persona is rejected", func(t *testing.T) {
+		t.Parallel()
+
 		h := newTestHandler(func(_, _ string) error { return nil })
 		rec := submitSelection(h, url.Values{"authRequestID": {"abc"}, "sub": {"nobody"}})
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for unknown persona, got %d", rec.Code)
 		}
 	})
+
+	t.Run("malformed form is rejected with 400", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(func(_, _ string) error { return nil })
+		mux := http.NewServeMux()
+		h.Routes(mux)
+		req := httptest.NewRequest(http.MethodPost, "/login/select", strings.NewReader("%zz"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("a malformed form should be 400, got %d", rec.Code)
+		}
+	})
+
+	t.Run("an unexpected completion error yields 500", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(func(_, _ string) error { return errors.New("boom") })
+		rec := submitSelection(h, url.Values{"authRequestID": {"abc"}, "sub": {"usr_alice"}})
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("a non-sentinel completion error should be 500, got %d", rec.Code)
+		}
+	})
+}
+
+func TestInitial(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"upper-cases the first rune", "bob", "B"},
+		{"handles a multibyte first rune", "élan", "É"},
+		{"empty name falls back to ?", "", "?"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := initial(tt.in); got != tt.want {
+				t.Errorf("initial(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestHandler_buildPage(t *testing.T) {
+	t.Parallel()
+
 	groups := []config.Group{{ID: "admins", Label: "Admins"}, {ID: "customers", Label: "Customers"}}
 	p := func(name, group string) config.Persona {
 		return config.Persona{Name: name, Group: group, Claims: map[string]any{"sub": "usr_" + name}}
@@ -147,6 +216,8 @@ func TestHandler_buildPage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			cfg := &config.Config{Groups: groups, Personas: tt.personas}
 			h := NewHandler(persona.NewSet(cfg), cfg, func(string, string) error { return nil }, "/cb")
 			var got []string
