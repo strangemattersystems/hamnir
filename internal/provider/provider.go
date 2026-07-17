@@ -90,7 +90,7 @@ func cryptoKey(key *rsa.PrivateKey) [32]byte {
 // (dynamic issuer); otherwise the configured static issuer is used.
 func NewProvider(cfg *config.Config, s *Storage) (*op.Provider, error) {
 	opConfig := &op.Config{
-		CryptoKey:                cryptoKey(s.key),
+		CryptoKey:                cryptoKey(s.signing.key),
 		DefaultLogoutRedirectURI: "/",
 		CodeMethodS256:           true,
 		AuthMethodPost:           true,
@@ -108,7 +108,8 @@ func NewProvider(cfg *config.Config, s *Storage) (*op.Provider, error) {
 	// a single provider per process.
 	opts := []op.Option{op.WithAllowInsecure()}
 	if cfg.BrowserURL != "" {
-		opts = append(opts,
+		opts = append(
+			opts,
 			op.WithCustomAuthEndpoint(op.NewEndpointWithURL("authorize", cfg.BrowserURL+"/authorize")),
 			op.WithCustomEndSessionEndpoint(op.NewEndpointWithURL("end_session", cfg.BrowserURL+"/end_session")),
 		)

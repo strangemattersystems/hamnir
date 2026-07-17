@@ -28,7 +28,6 @@ type cardVM struct {
 	Name        string
 	Initial     string
 	Description string
-	Colour      string
 	Picture     string
 }
 
@@ -114,7 +113,6 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 			Name:        name,
 			Initial:     initial(name),
 			Description: p.Description,
-			Colour:      byID[gid].Colour,
 			Picture:     picture,
 		})
 	}

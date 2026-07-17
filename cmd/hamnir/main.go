@@ -45,10 +45,7 @@ func run() int {
 					&cli.StringFlag{Name: "key-file", Value: "./.hamnir/key.pem", Usage: "signing key path"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					if err := command.Serve(ctx, cmd.String("config"), cmd.String("addr"), cmd.String("key-file")); err != nil {
-						return cli.Exit("", 1)
-					}
-					return nil
+					return command.Serve(ctx, cmd.String("config"), cmd.String("addr"), cmd.String("key-file"))
 				},
 			},
 			{

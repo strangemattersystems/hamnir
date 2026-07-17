@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -17,8 +18,7 @@ const shutdownTimeout = 10 * time.Second
 func Serve(ctx context.Context, configPath, addr, keyFile string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		slog.Error("load config", "err", err)
-		return err
+		return fmt.Errorf("load config: %w", err)
 	}
 	if len(cfg.Clients) == 0 {
 		slog.Warn("permissive dev mode — accepting any client_id and redirect_uri; DEV ONLY, do not expose to untrusted networks")
@@ -26,14 +26,12 @@ func Serve(ctx context.Context, configPath, addr, keyFile string) error {
 
 	key, err := provider.LoadOrGenerateKey(keyFile)
 	if err != nil {
-		slog.Error("load signing key", "err", err)
-		return err
+		return fmt.Errorf("load signing key: %w", err)
 	}
 
 	h, err := server.New(cfg, key)
 	if err != nil {
-		slog.Error("build server", "err", err)
-		return err
+		return fmt.Errorf("build server: %w", err)
 	}
 
 	srv := &http.Server{
@@ -54,8 +52,10 @@ func Serve(ctx context.Context, configPath, addr, keyFile string) error {
 	slog.Info("listening", "addr", addr)
 	select {
 	case err := <-serveErr:
-		slog.Error("server stopped", "err", err)
-		return err
+		if err != nil {
+			return fmt.Errorf("server stopped: %w", err)
+		}
+		return nil
 	case <-ctx.Done():
 		slog.Info("shutdown signal received, draining", "timeout", shutdownTimeout.String())
 	}
@@ -63,8 +63,7 @@ func Serve(ctx context.Context, configPath, addr, keyFile string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("graceful shutdown failed", "err", err)
-		return err
+		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	slog.Info("shutdown complete")
 	return nil

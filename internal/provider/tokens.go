@@ -3,6 +3,7 @@ package provider
 import (
 	"crypto/rsa"
 	"errors"
+	"maps"
 	"sync"
 	"time"
 
@@ -132,11 +133,9 @@ func (m *RefreshTokenManager) Revoke(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
-	for k, at := range m.revoked {
-		if now.Sub(at) > m.ttl {
-			delete(m.revoked, k)
-		}
-	}
+	maps.DeleteFunc(m.revoked, func(_ string, at time.Time) bool {
+		return now.Sub(at) > m.ttl
+	})
 	m.revoked[id] = now
 }
 

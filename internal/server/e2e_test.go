@@ -20,30 +20,12 @@ import (
 
 func TestEndToEnd(t *testing.T) {
 	t.Run("auth code flow", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-
-		oauthCfg := oauth2.Config{
-			ClientID:    "isen",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://app.test/callback",
-			Scopes:      []string{oidc.ScopeOpenID, "email", "profile"},
-		}
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "", "email", "profile")
 		verifier := oauth2.GenerateVerifier()
-		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
+		code := e.obtainCode(t, oauthCfg, oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
 
-		// 1+2. Authorize → picker → select Alice; the redirect carries the code.
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		if code == "" {
-			t.Fatal("expected an auth code")
-		}
-
-		// 3. Exchange code + PKCE verifier.
-		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		tok, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(verifier))
 		if err != nil {
 			t.Fatalf("exchange: %v", err)
 		}
@@ -52,8 +34,8 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatal("no id_token in token response")
 		}
 
-		// 4. Verify the ID token against JWKS (independent RP verification).
-		idTok, err := rp.Verifier(&oidc.Config{ClientID: "isen"}).Verify(ctx, rawID)
+		// Verify the ID token against JWKS (independent RP verification).
+		idTok, err := e.rp.Verifier(&oidc.Config{ClientID: "isen"}).Verify(e.ctx, rawID)
 		if err != nil {
 			t.Fatalf("verify id_token: %v", err)
 		}
@@ -71,8 +53,8 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatal("expected a refresh token by default")
 		}
 
-		// 5. Refresh grant returns a new access token.
-		refreshed, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token()
+		// Refresh grant returns a new access token.
+		refreshed, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token()
 		if err != nil {
 			t.Fatalf("refresh grant: %v", err)
 		}
@@ -85,26 +67,11 @@ func TestEndToEnd(t *testing.T) {
 	// standard client shape — client secret auth with no PKCE (any secret is
 	// accepted since none is registered).
 	t.Run("confidential client without pkce", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:     "webapp",
-			ClientSecret: "any-secret",
-			Endpoint:     rp.Endpoint(),
-			RedirectURL:  "http://app.test/callback",
-			Scopes:       []string{oidc.ScopeOpenID, "email"},
-		}
-		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"))
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("webapp", "any-secret", "email")
+		code := e.obtainCode(t, oauthCfg, oidc.Nonce("nonce123"))
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		if code == "" {
-			t.Fatal("expected an auth code")
-		}
-		tok, err := oauthCfg.Exchange(ctx, code)
+		tok, err := oauthCfg.Exchange(e.ctx, code)
 		if err != nil {
 			t.Fatalf("exchange with client secret and no PKCE: %v", err)
 		}
@@ -112,7 +79,7 @@ func TestEndToEnd(t *testing.T) {
 		if rawID == "" {
 			t.Fatal("no id_token in token response")
 		}
-		if _, err := rp.Verifier(&oidc.Config{ClientID: "webapp"}).Verify(ctx, rawID); err != nil {
+		if _, err := e.rp.Verifier(&oidc.Config{ClientID: "webapp"}).Verify(e.ctx, rawID); err != nil {
 			t.Fatalf("verify id_token: %v", err)
 		}
 	})
@@ -120,25 +87,11 @@ func TestEndToEnd(t *testing.T) {
 	// unauthenticated exchange rejected: a client presenting neither a secret
 	// nor PKCE is non-conformant; real IdPs reject it, so hamnir does too.
 	t.Run("no secret and no pkce rejected", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:    "webapp",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://app.test/callback",
-			Scopes:      []string{oidc.ScopeOpenID},
-		}
-		authURL := oauthCfg.AuthCodeURL("state123")
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("webapp", "")
+		code := e.obtainCode(t, oauthCfg)
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		if code == "" {
-			t.Fatal("expected an auth code")
-		}
-		if _, err := oauthCfg.Exchange(ctx, code); err == nil {
+		if _, err := oauthCfg.Exchange(e.ctx, code); err == nil {
 			t.Fatal("expected exchange with neither secret nor PKCE to be rejected")
 		}
 	})
@@ -147,26 +100,12 @@ func TestEndToEnd(t *testing.T) {
 	// login, so RP-initiated logout must honour post_logout_redirect_uri the
 	// same way, sending the browser back to the app with the state echoed.
 	t.Run("logout redirect round-trip", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:    "isen",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://app.test/callback",
-			Scopes:      []string{oidc.ScopeOpenID},
-		}
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "")
 		verifier := oauth2.GenerateVerifier()
-		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
+		code := e.obtainCode(t, oauthCfg, oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		if code == "" {
-			t.Fatal("expected an auth code")
-		}
-		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		tok, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(verifier))
 		if err != nil {
 			t.Fatalf("exchange: %v", err)
 		}
@@ -175,16 +114,10 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatal("no id_token in token response")
 		}
 
-		var disc struct {
-			EndSession string `json:"end_session_endpoint"`
-		}
-		if err := rp.Claims(&disc); err != nil {
-			t.Fatal(err)
-		}
-		logoutURL := disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID) +
+		logoutURL := e.disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID) +
 			"&post_logout_redirect_uri=" + url.QueryEscape("http://app.test/loggedout") +
 			"&state=st8"
-		resp, err := client.Get(logoutURL)
+		resp, err := e.client.Get(logoutURL)
 		if err != nil {
 			t.Fatalf("logout: %v", err)
 		}
@@ -201,29 +134,14 @@ func TestEndToEnd(t *testing.T) {
 	// pkce mismatch: the token endpoint rejects a code exchange presenting the
 	// wrong PKCE verifier — proof that PKCE is enforced, not merely accepted.
 	t.Run("pkce mismatch", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:    "isen",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://app.test/callback",
-			Scopes:      []string{oidc.ScopeOpenID},
-		}
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "")
 		verifier := oauth2.GenerateVerifier()
-		authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
-
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		if code == "" {
-			t.Fatal("expected an auth code")
-		}
+		code := e.obtainCode(t, oauthCfg, oauth2.S256ChallengeOption(verifier))
 
 		// Exchange with a DIFFERENT verifier than the challenge was derived from.
 		wrong := oauth2.GenerateVerifier()
-		if _, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(wrong)); err == nil {
+		if _, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(wrong)); err == nil {
 			t.Fatal("expected exchange with a mismatched PKCE verifier to be rejected")
 		}
 	})
@@ -237,22 +155,13 @@ func TestEndToEnd(t *testing.T) {
 			ID:           "isen",
 			RedirectURIs: []string{"http://app.test/callback"},
 		}}
-		srv, client := newServer(t, cfg)
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:    "isen",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://evil.test/callback", // NOT registered
-			Scopes:      []string{oidc.ScopeOpenID},
-		}
+		e := discover(t, cfg)
+		oauthCfg := e.app("isen", "")
+		oauthCfg.RedirectURL = "http://evil.test/callback" // NOT registered
 		verifier := oauth2.GenerateVerifier()
 		authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
 
-		resp, err := client.Get(authURL)
+		resp, err := e.client.Get(authURL)
 		if err != nil {
 			t.Fatalf("authorize: %v", err)
 		}
@@ -269,26 +178,12 @@ func TestEndToEnd(t *testing.T) {
 	// endpoint invalidates the session's refresh token so a later refresh grant
 	// is rejected.
 	t.Run("logout revokes refresh", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:    "isen",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://app.test/callback",
-			Scopes:      []string{oidc.ScopeOpenID, "email"},
-		}
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "", "email")
 		verifier := oauth2.GenerateVerifier()
-		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
+		code := e.obtainCode(t, oauthCfg, oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		if code == "" {
-			t.Fatal("expected an auth code")
-		}
-		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		tok, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(verifier))
 		if err != nil {
 			t.Fatalf("exchange: %v", err)
 		}
@@ -298,29 +193,18 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		// The refresh token works before logout.
-		if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err != nil {
+		if _, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err != nil {
 			t.Fatalf("refresh before logout should succeed: %v", err)
 		}
 
-		// Log out via the end-session endpoint (discovered from the metadata).
-		var disc struct {
-			EndSession string `json:"end_session_endpoint"`
-		}
-		if err := rp.Claims(&disc); err != nil {
-			t.Fatal(err)
-		}
-		if disc.EndSession == "" {
-			t.Fatal("provider metadata has no end_session_endpoint")
-		}
-		logoutURL := disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID)
-		resp, err := client.Get(logoutURL)
+		resp, err := e.client.Get(e.disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID))
 		if err != nil {
 			t.Fatalf("logout: %v", err)
 		}
 		_ = resp.Body.Close()
 
 		// After logout the refresh token must be rejected.
-		if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err == nil {
+		if _, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err == nil {
 			t.Fatal("refresh token should be rejected after logout")
 		}
 	})
@@ -328,23 +212,12 @@ func TestEndToEnd(t *testing.T) {
 	// revocation endpoint: RFC 7009 revocation of a refresh token must actually
 	// invalidate it — a later refresh grant with the revoked token fails.
 	t.Run("revoke endpoint invalidates refresh token", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:    "isen",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://app.test/callback",
-			Scopes:      []string{oidc.ScopeOpenID},
-		}
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "")
 		verifier := oauth2.GenerateVerifier()
-		authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
+		code := e.obtainCode(t, oauthCfg, oauth2.S256ChallengeOption(verifier))
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		tok, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(verifier))
 		if err != nil {
 			t.Fatalf("exchange: %v", err)
 		}
@@ -352,16 +225,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatal("expected a refresh token")
 		}
 
-		var disc struct {
-			Revocation string `json:"revocation_endpoint"`
-		}
-		if err := rp.Claims(&disc); err != nil {
-			t.Fatal(err)
-		}
-		if disc.Revocation == "" {
-			t.Fatal("provider metadata has no revocation_endpoint")
-		}
-		resp, err := client.PostForm(disc.Revocation, url.Values{
+		resp, err := e.client.PostForm(e.disc.Revocation, url.Values{
 			"token":           {tok.RefreshToken},
 			"token_type_hint": {"refresh_token"},
 			"client_id":       {"isen"},
@@ -374,7 +238,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("revoke status = %d, want 200", resp.StatusCode)
 		}
 
-		if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err == nil {
+		if _, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: tok.RefreshToken}).Token(); err == nil {
 			t.Fatal("refresh token should be rejected after revocation")
 		}
 	})
@@ -382,29 +246,18 @@ func TestEndToEnd(t *testing.T) {
 	// rotation: a refresh grant rotates the token; replaying the previous
 	// refresh token afterwards must fail, as against a real IdP.
 	t.Run("rotation invalidates replayed refresh token", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:    "isen",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://app.test/callback",
-			Scopes:      []string{oidc.ScopeOpenID},
-		}
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "")
 		verifier := oauth2.GenerateVerifier()
-		authURL := oauthCfg.AuthCodeURL("state123", oauth2.S256ChallengeOption(verifier))
+		code := e.obtainCode(t, oauthCfg, oauth2.S256ChallengeOption(verifier))
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		tok, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(verifier))
 		if err != nil {
 			t.Fatalf("exchange: %v", err)
 		}
 		old := tok.RefreshToken
 
-		rotated, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: old}).Token()
+		rotated, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: old}).Token()
 		if err != nil {
 			t.Fatalf("refresh grant: %v", err)
 		}
@@ -413,10 +266,10 @@ func TestEndToEnd(t *testing.T) {
 		}
 
 		// The rotated token works; the replaced one must not.
-		if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: rotated.RefreshToken}).Token(); err != nil {
+		if _, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: rotated.RefreshToken}).Token(); err != nil {
 			t.Fatalf("rotated refresh token should work: %v", err)
 		}
-		if _, err := oauthCfg.TokenSource(ctx, &oauth2.Token{RefreshToken: old}).Token(); err == nil {
+		if _, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: old}).Token(); err == nil {
 			t.Fatal("replaying the pre-rotation refresh token should be rejected")
 		}
 	})
@@ -424,40 +277,21 @@ func TestEndToEnd(t *testing.T) {
 	// userinfo after logout: once the session is terminated the still-unexpired
 	// access token must be rejected outright, not answered with stripped claims.
 	t.Run("userinfo rejects token after logout", func(t *testing.T) {
-		srv, client := newServer(t, aliceConfig())
-		ctx := oidc.ClientContext(context.Background(), client)
-		rp, err := oidc.NewProvider(ctx, srv.URL)
-		if err != nil {
-			t.Fatalf("discovery: %v", err)
-		}
-		oauthCfg := oauth2.Config{
-			ClientID:    "isen",
-			Endpoint:    rp.Endpoint(),
-			RedirectURL: "http://app.test/callback",
-			Scopes:      []string{oidc.ScopeOpenID, "email"},
-		}
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "", "email")
 		verifier := oauth2.GenerateVerifier()
-		authURL := oauthCfg.AuthCodeURL("state123", oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
+		code := e.obtainCode(t, oauthCfg, oidc.Nonce("nonce123"), oauth2.S256ChallengeOption(verifier))
 
-		code := codeFrom(authorizeAndSelect(t, client, srv.URL, authURL))
-		tok, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+		tok, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(verifier))
 		if err != nil {
 			t.Fatalf("exchange: %v", err)
 		}
 		rawID, _ := tok.Extra("id_token").(string)
 
-		var disc struct {
-			EndSession string `json:"end_session_endpoint"`
-			Userinfo   string `json:"userinfo_endpoint"`
-		}
-		if err := rp.Claims(&disc); err != nil {
-			t.Fatal(err)
-		}
-
 		userinfo := func() *http.Response {
-			req, _ := http.NewRequest(http.MethodGet, disc.Userinfo, nil)
+			req, _ := http.NewRequest(http.MethodGet, e.disc.Userinfo, nil)
 			req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-			resp, err := client.Do(req)
+			resp, err := e.client.Do(req)
 			if err != nil {
 				t.Fatalf("userinfo: %v", err)
 			}
@@ -468,7 +302,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatalf("userinfo before logout should return the email claim (status %d)", resp.StatusCode)
 		}
 
-		resp, err := client.Get(disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID))
+		resp, err := e.client.Get(e.disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID))
 		if err != nil {
 			t.Fatalf("logout: %v", err)
 		}
@@ -489,6 +323,60 @@ func aliceConfig() *config.Config {
 			"email_verified": true, "roles": []any{"coach"},
 		}},
 	}}
+}
+
+// env bundles one end-to-end scenario: the running server, a redirect-aware
+// HTTP client, the RP-side discovery, and the discovered endpoints.
+type env struct {
+	srv    *httptest.Server
+	client *http.Client
+	ctx    context.Context
+	rp     *oidc.Provider
+	disc   discovery
+}
+
+type discovery struct {
+	EndSession string `json:"end_session_endpoint"`
+	Revocation string `json:"revocation_endpoint"`
+	Userinfo   string `json:"userinfo_endpoint"`
+}
+
+// discover boots a server for cfg and performs RP discovery against it.
+func discover(t *testing.T, cfg *config.Config) env {
+	t.Helper()
+	srv, client := newServer(t, cfg)
+	ctx := oidc.ClientContext(context.Background(), client)
+	rp, err := oidc.NewProvider(ctx, srv.URL)
+	if err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+	var d discovery
+	if err := rp.Claims(&d); err != nil {
+		t.Fatal(err)
+	}
+	return env{srv: srv, client: client, ctx: ctx, rp: rp, disc: d}
+}
+
+// app returns the RP's oauth2 config; openid is always requested.
+func (e env) app(clientID, secret string, scopes ...string) oauth2.Config {
+	return oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: secret,
+		Endpoint:     e.rp.Endpoint(),
+		RedirectURL:  "http://app.test/callback",
+		Scopes:       append([]string{oidc.ScopeOpenID}, scopes...),
+	}
+}
+
+// obtainCode drives authorize → picker → select Alice and returns the
+// authorization code from the app redirect.
+func (e env) obtainCode(t *testing.T, cfg oauth2.Config, opts ...oauth2.AuthCodeOption) string {
+	t.Helper()
+	code := codeFrom(authorizeAndSelect(t, e.client, e.srv.URL, cfg.AuthCodeURL("state123", opts...)))
+	if code == "" {
+		t.Fatal("expected an auth code")
+	}
+	return code
 }
 
 // newServer starts an httptest server for cfg with a cookie-jar client that stops
