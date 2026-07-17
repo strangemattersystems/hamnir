@@ -15,9 +15,9 @@ import (
 // New assembles the OIDC provider and the persona picker into a single
 // http.Handler. The provider serves discovery, /authorize, /token, /keys,
 // /userinfo, end-session and the auth callback at "/"; the picker's more
-// specific routes (/login, /login/select, /static/) take precedence.
-// cfg must come from config.Load, which normalises URLs and resolves
-// hamnir:// style static claim references.
+// specific routes (/login, /login/select) take precedence. cfg must come from
+// config.Load, which normalises URLs and resolves hamnir:// style static claim
+// references.
 func New(cfg *config.Config) (http.Handler, error) {
 	set := persona.NewSet(cfg)
 	st, err := provider.NewStorage(cfg, set, cfg.Key)

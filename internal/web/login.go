@@ -66,8 +66,8 @@ func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, stri
 	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl, css: template.CSS(css)}
 }
 
-// Routes registers the picker's handlers on mux: the static assets, the GET
-// login page, and the POST that completes a persona selection.
+// Routes registers the picker's handlers on mux: the GET login page and the
+// POST that completes a persona selection.
 func (h *Handler) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+provider.LoginPath, h.getLogin)
 	mux.HandleFunc("POST "+provider.LoginPath+"/select", h.postSelect)
