@@ -29,7 +29,14 @@ func New(cfg *config.Config, key *rsa.PrivateKey) (http.Handler, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", provider.ObserveClientPresentation(p))
+	// Presentation sniffing only matters in permissive mode, where the
+	// fabricated client mirrors how the RP presented itself; with clients
+	// configured the middleware would be pure per-request overhead.
+	var ph http.Handler = p
+	if len(cfg.Clients) == 0 {
+		ph = provider.ObserveClientPresentation(p)
+	}
+	mux.Handle("/", ph)
 	web.NewHandler(set, cfg, st.AuthenticateAndComplete, provider.AuthCallbackPath).Routes(mux)
 	static.Register(mux, cfg.Static.Paths)
 	return mux, nil

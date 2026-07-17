@@ -247,13 +247,19 @@ func (s *Storage) DeleteAuthRequest(ctx context.Context, id string) error {
 }
 
 func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest) (string, time.Time, error) {
-	info := requestInfo(request)
+	info, err := requestInfo(request)
+	if err != nil {
+		return "", time.Time{}, err
+	}
 	jti, exp := s.storeAccessToken(info)
 	return jti, exp, nil
 }
 
 func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.TokenRequest, currentRefreshToken string) (accessTokenID string, newRefreshToken string, expiration time.Time, err error) {
-	info := requestInfo(request)
+	info, err := requestInfo(request)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
 	jti, exp := s.storeAccessToken(info)
 
 	// hamnir issues refresh tokens by default (not gated on offline_access).
@@ -524,14 +530,17 @@ func (s *Storage) Health(ctx context.Context) error { return nil }
 
 // requestInfo extracts the token claims from the concrete op.TokenRequest
 // types hamnir produces (auth-code flow and refresh flow).
-func requestInfo(req op.TokenRequest) TokenClaims {
+func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 	switch r := req.(type) {
 	case *authRequest:
-		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes}
+		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes}, nil
 	case *refreshRequest:
-		return r.TokenClaims
+		return r.TokenClaims, nil
 	default:
-		return TokenClaims{Sub: req.GetSubject(), Scopes: req.GetScopes()}
+		// No other flow should reach token creation (unsupported grants are
+		// cut off earlier); minting from an unknown type would silently issue
+		// a token with no client id or session.
+		return TokenClaims{}, fmt.Errorf("token request type %T: %w", req, errNotSupported)
 	}
 }
 

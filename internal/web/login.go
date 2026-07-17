@@ -1,9 +1,11 @@
 package web
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"unicode"
@@ -54,8 +56,16 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 
 func (h *Handler) getLogin(w http.ResponseWriter, r *http.Request) {
 	vm := h.buildPage(r.URL.Query().Get(provider.AuthRequestIDParam))
+	// Render to a buffer first: the page is tiny, and a mid-render failure
+	// must become a logged 500 rather than a silently truncated 200.
+	var buf bytes.Buffer
+	if err := h.tmpl.ExecuteTemplate(&buf, "picker.html.tmpl", vm); err != nil {
+		slog.Error("render persona picker", "err", err)
+		http.Error(w, "error rendering the login page", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = h.tmpl.ExecuteTemplate(w, "picker.html.tmpl", vm)
+	_, _ = buf.WriteTo(w)
 }
 
 func (h *Handler) postSelect(w http.ResponseWriter, r *http.Request) {

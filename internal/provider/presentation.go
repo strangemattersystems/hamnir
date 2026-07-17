@@ -24,14 +24,24 @@ type presentationKey struct{}
 // idempotent and op re-parses from the cached form values.
 func ObserveClientPresentation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Answer parse failures here: net/http caches the partial form but not
+		// the error, so op's own ParseForm would succeed and skip its
+		// "error parsing form" response, surfacing misleading errors instead.
+		if err := r.ParseForm(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"error parsing form"}`))
+			return
+		}
 		var p presentation
 		// An empty Basic password is not authentication: oauth2 client libraries
 		// send the header even for secretless public clients.
 		if _, secret, ok := r.BasicAuth(); ok && secret != "" {
 			p.clientSecret = true
 		}
-		_ = r.ParseForm()
-		if r.PostForm.Get("client_secret") != "" {
+		// Read the merged form (query + body) — op decodes from r.Form, and the
+		// permissive client must be shaped by what op will actually see.
+		if r.Form.Get("client_secret") != "" {
 			p.clientSecret = true
 		}
 		p.postLogoutRedirectURI = r.Form.Get("post_logout_redirect_uri")

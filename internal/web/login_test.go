@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -117,6 +118,20 @@ func TestBuildPage_GroupOrder(t *testing.T) {
 				t.Errorf("group labels = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetLogin_RenderFailure(t *testing.T) {
+	cfg := &config.Config{Personas: []config.Persona{{Name: "Alice", Claims: map[string]any{"sub": "usr_alice"}}}}
+	h := &Handler{
+		set:  persona.NewSet(cfg),
+		cfg:  cfg,
+		tmpl: template.Must(template.New("picker.html.tmpl").Parse("{{index .Groups 99}}")),
+	}
+	rec := httptest.NewRecorder()
+	h.getLogin(rec, httptest.NewRequest(http.MethodGet, "/login?authRequestID=x", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("a render failure must yield 500, got %d (body %q)", rec.Code, rec.Body.String())
 	}
 }
 

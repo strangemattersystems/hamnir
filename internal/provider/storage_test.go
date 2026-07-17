@@ -406,6 +406,23 @@ func TestStorage_Revocation(t *testing.T) {
 	})
 }
 
+// unexpectedTokenRequest is an op.TokenRequest type hamnir never produces.
+type unexpectedTokenRequest struct{}
+
+func (unexpectedTokenRequest) GetSubject() string    { return "usr_alice" }
+func (unexpectedTokenRequest) GetAudience() []string { return nil }
+func (unexpectedTokenRequest) GetScopes() []string   { return []string{"openid"} }
+
+// TestStorage_CreateAccessToken_UnexpectedRequest pins that an unknown token
+// request type fails loudly instead of silently minting an anonymous token
+// with no client id or session.
+func TestStorage_CreateAccessToken_UnexpectedRequest(t *testing.T) {
+	st := newTestStorage(t)
+	if _, _, err := st.CreateAccessToken(context.Background(), unexpectedTokenRequest{}); err == nil {
+		t.Fatal("an unexpected token request type must be rejected")
+	}
+}
+
 // TestStorage_DeleteAuthRequest pins the code cleanup on token exchange: the
 // exchanged request and its code both disappear.
 func TestStorage_DeleteAuthRequest(t *testing.T) {
