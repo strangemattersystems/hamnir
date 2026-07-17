@@ -50,14 +50,13 @@ func run() int {
 			},
 			{
 				Name:  "init",
-				Usage: "scaffold a minimal config and signing key",
+				Usage: "scaffold a minimal config",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "config", Value: "./hamnir.yaml", Usage: "path to config file to create"},
-					&cli.StringFlag{Name: "key-file", Value: "./.hamnir/key.pem", Usage: "signing key path to create"},
 					&cli.BoolFlag{Name: "force", Usage: "overwrite existing files"},
 				},
 				Action: func(_ context.Context, cmd *cli.Command) error {
-					return command.Init(os.Stdout, cmd.String("config"), cmd.String("key-file"), cmd.Bool("force"))
+					return command.Init(os.Stdout, cmd.String("config"), cmd.Bool("force"))
 				},
 			},
 			{

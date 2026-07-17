@@ -26,3 +26,7 @@ personas:
       email_verified: true
       name: Eve
       evesdropper: true
+
+# hamnir is a development-only provider: this key protects nothing real and is
+# meant to be committed with this file.
+signing_key: REPLACED-BY-HAMNIR-INIT
