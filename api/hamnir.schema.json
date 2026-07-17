@@ -56,6 +56,10 @@
           "additionalProperties": { "type": "string", "minLength": 1 }
         }
       }
+    },
+    "signing_key": {
+      "type": "string",
+      "description": "The provider's RSA-2048 token signing key: standard base64 of the PKCS#8 DER, one line, no PEM armor. hamnir is a development-only provider — this key protects nothing real and is intended to be committed with the rest of the config so every developer and replica runs a byte-identical IdP. Generate with \"hamnir init\"."
     }
   },
   "$defs": {

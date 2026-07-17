@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/rsa"
 	"fmt"
 	"os"
 	"strings"
@@ -16,6 +17,10 @@ type Config struct {
 	Scopes     map[string][]string `yaml:"scopes"`
 	Personas   []Persona           `yaml:"personas"`
 	Static     Static              `yaml:"static"`
+	SigningKey string              `yaml:"signing_key"`
+
+	// Key is SigningKey decoded, populated by Load. Never serialised.
+	Key *rsa.PrivateKey `yaml:"-"`
 }
 
 type Static struct {
@@ -57,6 +62,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid config %q: %w", path, err)
 	}
 	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config %q: %w", path, err)
+	}
+	if err := cfg.parseSigningKey(); err != nil {
 		return nil, fmt.Errorf("invalid config %q: %w", path, err)
 	}
 	if err := cfg.resolveStaticClaims(); err != nil {
