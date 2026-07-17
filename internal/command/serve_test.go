@@ -57,8 +57,16 @@ func waitReady(t *testing.T, addr string) {
 	t.Fatalf("server at %s never became ready", addr)
 }
 
+// TestServe's subtests run in parallel; each binds its own free port. This is
+// safe on op's package-global DefaultEndpoints only because no test config sets
+// browser_url (which would trigger provider.NewProvider's in-place mutation of
+// that global) — a future browser_url case here must not be parallel.
 func TestServe(t *testing.T) {
+	t.Parallel()
+
 	t.Run("graceful shutdown", func(t *testing.T) {
+		t.Parallel()
+
 		cfg := writeValidConfig(t)
 		addr := freeAddr(t)
 
@@ -80,6 +88,8 @@ func TestServe(t *testing.T) {
 	})
 
 	t.Run("addr in use", func(t *testing.T) {
+		t.Parallel()
+
 		cfg := writeValidConfig(t)
 
 		l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -90,6 +100,15 @@ func TestServe(t *testing.T) {
 
 		if err := Serve(t.Context(), cfg, l.Addr().String()); err == nil {
 			t.Fatal("Serve returned nil, want error for in-use addr")
+		}
+	})
+
+	t.Run("rejects an unloadable config", func(t *testing.T) {
+		t.Parallel()
+
+		missing := filepath.Join(t.TempDir(), "nope.yaml")
+		if err := Serve(t.Context(), missing, "127.0.0.1:0"); err == nil {
+			t.Fatal("Serve with a missing config should fail before binding")
 		}
 	})
 }

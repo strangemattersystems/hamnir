@@ -11,7 +11,11 @@ import (
 )
 
 func TestInit(t *testing.T) {
+	t.Parallel()
+
 	t.Run("writes a loadable config", func(t *testing.T) {
+		t.Parallel()
+
 		dir := t.TempDir()
 		cfgPath := filepath.Join(dir, "hamnir.yaml")
 
@@ -46,6 +50,8 @@ func TestInit(t *testing.T) {
 	})
 
 	t.Run("refuses an existing file unless forced", func(t *testing.T) {
+		t.Parallel()
+
 		dir := t.TempDir()
 		cfgPath := filepath.Join(dir, "hamnir.yaml")
 		if err := os.WriteFile(cfgPath, []byte("old"), 0o644); err != nil {
@@ -69,10 +75,26 @@ func TestInit(t *testing.T) {
 		}
 	})
 
+	t.Run("fails when the config dir cannot be created", func(t *testing.T) {
+		t.Parallel()
+
+		// A file where a parent directory is expected makes MkdirAll fail, so
+		// Init must surface the error rather than write nothing silently.
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := Init(&bytes.Buffer{}, filepath.Join(blocker, "hamnir.yaml"), false); err == nil {
+			t.Fatal("Init into a path under a file should fail")
+		}
+	})
+
 	// Guards the embedded template against losing the substitution target —
 	// without it Init would silently emit a config whose signing_key is the
 	// placeholder text.
 	t.Run("template retains the placeholder", func(t *testing.T) {
+		t.Parallel()
+
 		if !strings.Contains(minimalConfig, "signing_key: "+signingKeyPlaceholder) {
 			t.Fatal("init_config.yaml is missing the signing_key placeholder line")
 		}

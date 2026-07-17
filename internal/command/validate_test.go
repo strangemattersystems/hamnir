@@ -9,6 +9,8 @@ import (
 )
 
 func TestValidate(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		yaml       string
@@ -41,6 +43,8 @@ func TestValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := filepath.Join(t.TempDir(), "hamnir.yaml")
 			body := tt.yaml
 			if !tt.withoutKey {
