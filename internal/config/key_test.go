@@ -86,6 +86,20 @@ func TestLoad_SigningKey(t *testing.T) {
 		t.Fatal("Load did not populate Key")
 	}
 
+	t.Run("reflowed value tolerated", func(t *testing.T) {
+		// A folded scalar reflows the one-line value across lines; YAML turns
+		// the breaks into spaces, which the decoder must strip.
+		mid := len(encoded) / 2
+		folded := "signing_key: >-\n  " + encoded[:mid] + "\n  " + encoded[mid:] + "\n"
+		cfg, err := Load(writeTemp(t, "personas:\n  - claims: { sub: s }\n"+folded))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.Key == nil {
+			t.Fatal("Load did not populate Key")
+		}
+	})
+
 	t.Run("invalid key surfaces from Load", func(t *testing.T) {
 		_, err := Load(writeTemp(t, "personas:\n  - claims: { sub: s }\nsigning_key: not!!base64\n"))
 		if !errors.Is(err, errInvalidSigningKey) {

@@ -7,11 +7,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var (
 	errInvalidSigningKey = errors.New("invalid signing_key")
-	errMissingSigningKey = errors.New(`missing signing_key (run "hamnir init" to create a config, or add one)`)
+	errMissingSigningKey = errors.New("missing signing_key")
 )
 
 // GenerateSigningKey returns a freshly generated RSA-2048 private key encoded
@@ -30,12 +31,15 @@ func GenerateSigningKey() (string, error) {
 	return base64.StdEncoding.EncodeToString(der), nil
 }
 
-// parseSigningKey decodes SigningKey into Key.
+// parseSigningKey decodes SigningKey into Key. Whitespace is stripped before
+// decoding so a value reflowed across lines by an editor or YAML formatter
+// (folded scalars turn line breaks into spaces) still parses.
 func (c *Config) parseSigningKey() error {
-	if c.SigningKey == "" {
+	encoded := strings.Join(strings.Fields(c.SigningKey), "")
+	if encoded == "" {
 		return errMissingSigningKey
 	}
-	der, err := base64.StdEncoding.DecodeString(c.SigningKey)
+	der, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return fmt.Errorf("%w: not valid base64: %w", errInvalidSigningKey, err)
 	}
