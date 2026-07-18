@@ -73,12 +73,15 @@ type Group struct {
 }
 
 // Persona is a selectable test identity. Its Claims supply the identity's OIDC
-// claims, released into tokens subject to the requested scopes.
+// claims, released into tokens subject to the requested scopes. Tokens are
+// optional static secrets exchangeable for real tokens via the RFC 8693 token
+// exchange grant.
 type Persona struct {
 	Name        string         `yaml:"name"`
 	Description string         `yaml:"description"`
 	Group       string         `yaml:"group"`
 	Claims      map[string]any `yaml:"claims"`
+	Tokens      []string       `yaml:"tokens"`
 }
 
 // Load reads the YAML config at path and returns a ready-to-use [Config]. It

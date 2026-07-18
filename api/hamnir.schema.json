@@ -168,6 +168,11 @@
               "description": "Stable subject identifier. Required, and unique across personas."
             }
           }
+        },
+        "tokens": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Optional static secrets for programmatic login: each can be exchanged for real tokens via the OAuth 2.0 token exchange grant (RFC 8693) — POST the string as subject_token with subject_token_type urn:ietf:params:oauth:token-type:access_token to the token endpoint. Any non-empty string works; must be unique across all personas (enforced by hamnir at load time)."
         }
       }
     }

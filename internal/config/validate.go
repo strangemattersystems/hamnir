@@ -27,14 +27,17 @@ var (
 	errNegativeLifetime      = errors.New("negative lifetime")
 	errEmptyAudience         = errors.New("empty audience")
 	errDuplicateAudience     = errors.New("duplicate audience")
+	errEmptyToken            = errors.New("empty persona token")
+	errDuplicateToken        = errors.New("duplicate persona token")
 )
 
 var hexColour = regexp.MustCompile(`^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$`)
 
 // Validate checks the config's invariants: unique non-empty client ids, each
-// persona a unique non-empty sub, known group references, well-formed colours
-// and URLs, non-negative lifetimes, valid static mounts, and audience lists
-// free of empty or duplicate entries. It runs as part of [Load].
+// persona a unique non-empty sub, persona tokens non-empty and unique across the config,
+// known group references, well-formed colours and URLs, non-negative lifetimes,
+// valid static mounts, and audience lists free of empty or duplicate entries.
+// It runs as part of [Load].
 func (c *Config) Validate() error {
 	// Redirect URIs are deliberately NOT required: a back-channel-only client
 	// (introspection/revocation) authenticates with id + secret and never
@@ -69,6 +72,7 @@ func (c *Config) Validate() error {
 	}
 
 	seenSub := map[string]bool{}
+	seenToken := map[string]bool{}
 	for i, p := range c.Personas {
 		sub, _ := p.Claims["sub"].(string)
 		if sub == "" {
@@ -80,6 +84,15 @@ func (c *Config) Validate() error {
 		seenSub[sub] = true
 		if p.Group != "" && !groupIDs[p.Group] {
 			return fmt.Errorf("persona %q: group %q: %w", sub, p.Group, errUnknownGroup)
+		}
+		for _, tok := range p.Tokens {
+			if tok == "" {
+				return fmt.Errorf("persona %q: %w", sub, errEmptyToken)
+			}
+			if seenToken[tok] {
+				return fmt.Errorf("persona %q: token %q: %w", sub, tok, errDuplicateToken)
+			}
+			seenToken[tok] = true
 		}
 	}
 

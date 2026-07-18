@@ -56,6 +56,36 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			wantErr: nil,
 		},
+		{
+			name: "empty persona token",
+			cfg: &Config{Personas: []Persona{
+				{Claims: map[string]any{"sub": "a"}, Tokens: []string{""}},
+			}},
+			wantErr: errEmptyToken,
+		},
+		{
+			name: "duplicate token across personas",
+			cfg: &Config{Personas: []Persona{
+				{Claims: map[string]any{"sub": "a"}, Tokens: []string{"tok"}},
+				{Claims: map[string]any{"sub": "b"}, Tokens: []string{"tok"}},
+			}},
+			wantErr: errDuplicateToken,
+		},
+		{
+			name: "duplicate token within a persona",
+			cfg: &Config{Personas: []Persona{
+				{Claims: map[string]any{"sub": "a"}, Tokens: []string{"tok", "tok"}},
+			}},
+			wantErr: errDuplicateToken,
+		},
+		{
+			name: "valid persona tokens",
+			cfg: &Config{Personas: []Persona{
+				{Claims: map[string]any{"sub": "a"}, Tokens: []string{"a-ci", "a-local"}},
+				{Claims: map[string]any{"sub": "b"}, Tokens: []string{"b-ci"}},
+			}},
+			wantErr: nil,
+		},
 	}
 
 	for _, tt := range tests {
