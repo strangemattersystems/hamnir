@@ -1,1 +1,75 @@
 # hamnir
+
+hamnir is an OpenID Connect provider for local development: its users are personas you define, and signing in can be a single click.
+
+So you've built an app with OIDC/OAuth SSO — awesome! Now you're developing against it and want to log in as different users to try things out — ugh! That's what hamnir solves: it's a real OpenID Connect provider that lets you sign in as any of a set of users you define. Because it speaks real OIDC, you're exercising the actual login flow — not a stub that drifts from production — without special-casing your code for development.
+
+Why hamnir though? It's small and quick — the container image is ~25MB, and it starts basically instantly — and your personas live in one relatively easy-to-maintain config file. Commit that file next to your app and your whole team logs in as the same people.
+
+## Quick start
+
+Two steps: create a config that lists your personas, then run the server on it. Both work the same whether you install the CLI or use the container image.
+
+### 1. Create a config
+
+Scaffold a starter config as `./hamnir.yaml`.
+
+With the CLI:
+
+```bash
+go install github.com/strangemattersystems/hamnir/cmd/hamnir@latest
+hamnir init
+```
+
+With Docker — runs as you (`-u`) so the file it writes back is yours to edit:
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" \
+  -v "$PWD:/out" -e HAMNIR_CONFIG=/out/hamnir.yaml \
+  ghcr.io/strangemattersystems/hamnir init
+```
+
+Open `hamnir.yaml` and add or adjust personas to match your app. Take a look at the [example config](examples/hamnir.yaml) for settings you can copy over as you need them.
+
+### 2. Run the server
+
+Serve OIDC at `http://localhost:5556`.
+
+With the CLI:
+
+```bash
+hamnir serve
+```
+
+With Docker:
+
+```bash
+docker run --rm -p 5556:5556 \
+  -v "$PWD/hamnir.yaml:/etc/hamnir/hamnir.yaml:ro" \
+  -e HAMNIR_CONFIG=/etc/hamnir/hamnir.yaml \
+  ghcr.io/strangemattersystems/hamnir
+```
+
+Then point your app's OIDC discovery at `http://localhost:5556`. hamnir starts in **permissive mode** — with no clients registered it accepts any `client_id` and redirect URI — so most apps connect with no extra setup. Trigger a login and you'll get the persona picker; click a persona and your app receives its tokens and claims.
+
+The [example compose file](examples/docker-compose.yml) shows how to wire the container image up as a basic service in Docker Compose.
+
+> [!WARNING]
+> hamnir is a development tool — it allows you to authenticate without restriction as arbitrarily configured users. You should ensure it's not exposed to untrusted networks and that you understand the power it grants.
+
+## Example
+
+[`examples/`](examples/) runs hamnir next to a small relying-party web app with Docker Compose, so you can watch the whole flow — picker, redirect, token exchange, claims — in a browser. Start there if you'd rather see it than read about it.
+
+## What you can configure
+
+Everything lives in one config file — `hamnir init` scaffolds it and `hamnir validate` checks it. The [example config](examples/hamnir.yaml) walks through each of these in comments:
+
+- **Personas** — your test users and whatever claims you want them to carry: email, name, roles, anything custom.
+- **Groups** — organise personas into labelled sections in the picker.
+- **Avatars & static content** — serve local images and reference them from a persona's `picture` claim.
+- **Clients** — register specific clients to leave permissive mode and match redirect URIs exactly.
+- **Audiences** — set the `aud` on issued tokens for APIs that validate it.
+- **Token lifetimes** — tune how long access, ID and refresh tokens live.
+
+The config is schema-annotated ([`api/hamnir.schema.json`](api/hamnir.schema.json)), so a YAML-aware editor autocompletes fields and flags mistakes as you type.
