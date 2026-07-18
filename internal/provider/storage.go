@@ -29,8 +29,8 @@ const (
 )
 
 // errNotSupported is returned by op.Storage methods for flows hamnir does not
-// implement (device authorization, token exchange, JWT-profile / client
-// assertions, client-secret credential grants).
+// implement (device authorization, JWT-profile / client assertions,
+// client-secret credential grants).
 var errNotSupported = errors.New("not supported by hamnir")
 
 // ErrAuthRequestNotFound and ErrAuthRequestDone let the login UI distinguish
@@ -50,6 +50,11 @@ type Storage struct {
 	personas *persona.Set
 	refresh  *RefreshTokenManager
 	signing  *signingKey
+
+	// exchangeTokens maps each static persona token (config tokens:) to its
+	// persona's sub. Built once at construction; read-only thereafter, so
+	// lookups need no lock.
+	exchangeTokens map[string]string
 
 	mu           sync.Mutex
 	authRequests map[string]*authRequest       // id -> request
@@ -89,11 +94,19 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 	if err != nil {
 		return nil, fmt.Errorf("derive key id: %w", err)
 	}
+	exchangeTokens := make(map[string]string)
+	for _, p := range cfg.Personas {
+		sub, _ := p.Claims["sub"].(string)
+		for _, tok := range p.Tokens {
+			exchangeTokens[tok] = sub
+		}
+	}
 	return &Storage{
-		cfg:      cfg,
-		personas: set,
-		refresh:  refresh,
-		signing:  &signingKey{id: kid, key: key},
+		cfg:            cfg,
+		personas:       set,
+		refresh:        refresh,
+		signing:        &signingKey{id: kid, key: key},
+		exchangeTokens: exchangeTokens,
 
 		authRequests: make(map[string]*authRequest),
 		codes:        make(map[string]string),
@@ -242,14 +255,20 @@ func (s *Storage) DeleteAuthRequest(ctx context.Context, id string) error {
 	return nil
 }
 
-// CreateAccessToken issues a standalone access token. hamnir grants
-// offline_access by default (see withOfflineAccess), so op routes issuance
-// through CreateAccessAndRefreshTokens instead; this satisfies op.Storage and
-// is reached only if that policy changes.
+// CreateAccessToken issues a standalone access token. op routes code-flow
+// issuance through CreateAccessAndRefreshTokens (hamnir grants offline_access
+// by default — see withOfflineAccess); this path is reached by token exchanges
+// that requested an access token.
 func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest) (string, time.Time, error) {
 	info, err := requestInfo(request)
 	if err != nil {
 		return "", time.Time{}, err
+	}
+	// An exchange starts a session outside the picker flow, which registers
+	// sessions in AuthenticateAndComplete; register it here instead so
+	// logout/termination reaches programmatic logins too.
+	if _, ok := request.(op.TokenExchangeRequest); ok {
+		s.touchSession(info)
 	}
 	jti, exp := s.storeAccessToken(info)
 	return jti, exp, nil
@@ -259,6 +278,11 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	info, err := requestInfo(request)
 	if err != nil {
 		return "", "", time.Time{}, err
+	}
+	// An exchange starts a session outside the picker flow; register it here
+	// too (see CreateAccessToken) so logout/termination reaches it.
+	if _, ok := request.(op.TokenExchangeRequest); ok {
+		s.touchSession(info)
 	}
 	jti, exp := s.storeAccessToken(info)
 
@@ -558,13 +582,18 @@ func (s *Storage) ValidateJWTProfileScopes(ctx context.Context, userID string, s
 func (s *Storage) Health(ctx context.Context) error { return nil }
 
 // requestInfo extracts the token claims from the concrete op.TokenRequest
-// types hamnir produces (auth-code flow and refresh flow).
+// types hamnir produces (auth-code flow and refresh flow) and op's token
+// exchange requests.
 func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 	switch r := req.(type) {
 	case *authRequest:
 		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes}, nil
 	case *refreshRequest:
 		return r.TokenClaims, nil
+	case op.TokenExchangeRequest:
+		// A token exchange is a fresh programmatic login: mint a new session
+		// id so its refresh tokens are revocable like any other session's.
+		return TokenClaims{Sub: r.GetSubject(), ClientID: r.GetClientID(), SID: randID(), Scopes: r.GetScopes()}, nil
 	default:
 		// No other flow should reach token creation (unsupported grants are
 		// cut off earlier); minting from an unknown type would silently issue
