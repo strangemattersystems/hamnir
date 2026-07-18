@@ -1,13 +1,19 @@
 package server
 
 import (
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
 )
+
+// testVersion is the version line newServer wires into New, so the /up endpoint
+// has a known string to echo.
+const testVersion = "hamnir 9.9.9-test (rev deadbeef, built 2026-01-01T00:00:00Z)"
 
 func TestNew(t *testing.T) {
 	t.Parallel()
@@ -41,12 +47,35 @@ func TestNew(t *testing.T) {
 		}
 	})
 
+	t.Run("serves /up with the version string", func(t *testing.T) {
+		t.Parallel()
+
+		resp, err := srv.Client().Get(srv.URL + "/up")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("/up status %d, want 200", resp.StatusCode)
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+			t.Errorf("content-type = %q, want text/plain", ct)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != testVersion {
+			t.Errorf("body = %q, want %q", body, testVersion)
+		}
+	})
+
 	t.Run("propagates a construction failure", func(t *testing.T) {
 		t.Parallel()
 
 		// A config with no signing key cannot build the token signer, so New
 		// must surface the error rather than return a half-built handler.
-		if _, err := New(&config.Config{Lifetimes: config.DefaultLifetimes}); err == nil {
+		if _, err := New(&config.Config{Lifetimes: config.DefaultLifetimes}, testVersion); err == nil {
 			t.Fatal("New with a nil signing key should fail")
 		}
 	})

@@ -1,7 +1,9 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json
 
-# This is a minimal starter config for you to adapt as you need. The hamnir documentation can help
-# you create more complete configurations; with groups, static content, client restrictions, etc.
+# This is a minimal starter config for you to adapt as you need. 
+# The hamnir repo (https://github.com/strangemattersystems/hamnir) has more complete
+# examples and documentation showing how you can configure features like groups,
+# static content, and client restrictions.
 
 personas:
   - name: Alice

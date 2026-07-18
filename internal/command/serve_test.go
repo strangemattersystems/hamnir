@@ -72,7 +72,7 @@ func TestServe(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		errc := make(chan error, 1)
-		go func() { errc <- Serve(ctx, cfg, addr) }()
+		go func() { errc <- Serve(ctx, cfg, addr, "test") }()
 
 		waitReady(t, addr)
 		cancel()
@@ -98,7 +98,7 @@ func TestServe(t *testing.T) {
 		}
 		defer func() { _ = l.Close() }()
 
-		if err := Serve(t.Context(), cfg, l.Addr().String()); err == nil {
+		if err := Serve(t.Context(), cfg, l.Addr().String(), "test"); err == nil {
 			t.Fatal("Serve returned nil, want error for in-use addr")
 		}
 	})
@@ -107,7 +107,7 @@ func TestServe(t *testing.T) {
 		t.Parallel()
 
 		missing := filepath.Join(t.TempDir(), "nope.yaml")
-		if err := Serve(t.Context(), missing, "127.0.0.1:0"); err == nil {
+		if err := Serve(t.Context(), missing, "127.0.0.1:0", "test"); err == nil {
 			t.Fatal("Serve with a missing config should fail before binding")
 		}
 	})

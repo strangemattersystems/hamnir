@@ -36,8 +36,9 @@ func configFlag(usage string) *cli.StringFlag {
 func run() int {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
+	versionText := fmt.Sprintf("hamnir %s (revision %s, built %s)", version, revision, date)
 	cli.VersionPrinter = func(*cli.Command) {
-		fmt.Printf("hamnir %s (rev %s, built %s)\n", version, revision, date)
+		fmt.Println(versionText)
 	}
 
 	root := &cli.Command{
@@ -58,7 +59,7 @@ func run() int {
 					},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					return command.Serve(ctx, cmd.String("config"), cmd.String("addr"))
+					return command.Serve(ctx, cmd.String("config"), cmd.String("addr"), versionText)
 				},
 			},
 			{
