@@ -404,9 +404,10 @@ type env struct {
 }
 
 type discovery struct {
-	EndSession string `json:"end_session_endpoint"`
-	Revocation string `json:"revocation_endpoint"`
-	Userinfo   string `json:"userinfo_endpoint"`
+	EndSession string   `json:"end_session_endpoint"`
+	Revocation string   `json:"revocation_endpoint"`
+	Userinfo   string   `json:"userinfo_endpoint"`
+	GrantTypes []string `json:"grant_types_supported"`
 }
 
 // discover boots a server for cfg and performs RP discovery against it.
