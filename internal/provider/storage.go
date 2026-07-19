@@ -494,7 +494,15 @@ func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientS
 		return fmt.Errorf("client %q not found", clientID)
 	}
 	if c.Secret == "" {
-		return errors.New("client is public; use PKCE")
+		// Public clients identify rather than authenticate (RFC 6749 §2.3):
+		// an empty presented secret is accepted, which is what admits them to
+		// grants that have no PKCE step, like the token exchange (RFC 8693
+		// §2.1 leaves that policy to the deployment). A non-empty secret for
+		// a client that has none registered is a misconfiguration.
+		if clientSecret != "" {
+			return errors.New("unexpected secret for a public client")
+		}
+		return nil
 	}
 	if c.Secret != clientSecret {
 		return errors.New("invalid client secret")

@@ -269,10 +269,15 @@ func TestTokenExchange(t *testing.T) {
 		if status, _ := postExchange(t, e, "tests", "wrong", exchangeForm("alice-ci", nil)); status == http.StatusOK {
 			t.Fatal("wrong secret must be rejected")
 		}
-		// Public clients use PKCE, which has no exchange equivalent; option 1
-		// in the design keeps them rejected (see deferred-minors follow-up).
-		if status, _ := postExchange(t, e, "spa", "", exchangeForm("alice-ci", nil)); status == http.StatusOK {
-			t.Fatal("public client must be rejected")
+		// Public clients cannot authenticate at the token endpoint (PKCE has
+		// no exchange equivalent), so they identify instead: client id with
+		// an empty secret (RFC 6749 §2.3). Presenting a secret none was
+		// registered for stays a misconfiguration.
+		if status, body := postExchange(t, e, "spa", "", exchangeForm("alice-ci", nil)); status != http.StatusOK {
+			t.Fatalf("public client: status = %d, want 200 (body %v)", status, body)
+		}
+		if status, _ := postExchange(t, e, "spa", "surprise", exchangeForm("alice-ci", nil)); status == http.StatusOK {
+			t.Fatal("public client presenting a secret must be rejected")
 		}
 	})
 

@@ -817,7 +817,7 @@ func TestStorage_AuthorizeClientIDSecret(t *testing.T) {
 
 	ctx := context.Background()
 	st := newStorageWithClients(t,
-		config.Client{ID: "public"},                         // no secret: public, PKCE only
+		config.Client{ID: "public"},                         // no secret: public — PKCE for code flows, identification elsewhere
 		config.Client{ID: "confidential", Secret: "s3cret"}, // confidential
 	)
 
@@ -830,6 +830,7 @@ func TestStorage_AuthorizeClientIDSecret(t *testing.T) {
 		{"correct secret accepted", "confidential", "s3cret", false},
 		{"wrong secret rejected", "confidential", "nope", true},
 		{"secret on a public client rejected", "public", "anything", true},
+		{"public client with empty secret accepted", "public", "", false},
 		{"unknown client rejected", "ghost", "whatever", true},
 	}
 	for _, tt := range tests {
