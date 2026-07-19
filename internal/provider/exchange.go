@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"slices"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -113,4 +115,41 @@ func (s *Storage) GetPrivateClaimsFromTokenExchangeRequest(ctx context.Context, 
 func (s *Storage) SetUserinfoFromTokenExchangeRequest(ctx context.Context, userinfo *oidc.UserInfo, request op.TokenExchangeRequest) error {
 	s.setUserinfo(userinfo, request.GetSubject(), request.GetScopes())
 	return nil
+}
+
+// DefaultExchangeAudience defaults an omitted RFC 8693 audience parameter on
+// token exchange requests to the audiences configured for the requesting
+// client, so configured audiences: reach exchanged tokens exactly as they
+// reach code-flow and refresh tokens. op decodes an exchange's audience from
+// the form only — there is no storage hook for it, unlike the subject, scopes
+// and requested type — so the defaulting happens at the one seam hamnir owns,
+// before op parses the request. RFC 8693 leaves the omitted-parameter policy
+// to the server; an explicit audience always wins. Mutating the parsed form
+// works because ParseForm is idempotent and op decodes from the cached
+// r.Form — the same property that obliges any early parser to answer parse
+// failures itself (see answerFormParseError).
+func (s *Storage) DefaultExchangeAudience(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			// This middleware sits outermost, so it owns answering parse
+			// failures (see answerFormParseError) — in registered mode nothing
+			// else between here and op would.
+			if err := r.ParseForm(); err != nil {
+				answerFormParseError(w)
+				return
+			}
+			if r.Form.Get("grant_type") == string(oidc.GrantTypeTokenExchange) &&
+				r.Form.Get("audience") == "" {
+				// op unescapes Basic-auth credentials the same way (ParseTokenExchangeRequest).
+				clientID, _, _ := r.BasicAuth()
+				if unescaped, err := url.QueryUnescape(clientID); err == nil {
+					clientID = unescaped
+				}
+				for _, aud := range s.audienceFor(clientID) {
+					r.Form.Add("audience", aud)
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }

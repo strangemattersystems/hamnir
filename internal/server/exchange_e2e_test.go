@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"maps"
 	"net/http"
@@ -63,6 +64,36 @@ func postExchange(t *testing.T, e env, clientID, secret string, form url.Values)
 	return resp.StatusCode, body
 }
 
+// jwtPayload decodes a JWT's claims without verifying it — these tests only
+// inspect what the server minted; signature verification is covered where the
+// RP library is driven.
+func jwtPayload(t *testing.T, token string) map[string]any {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("not a JWT: %q", token)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(raw, &claims); err != nil {
+		t.Fatal(err)
+	}
+	return claims
+}
+
+// anyToStrings narrows a decoded JSON array to strings for comparison.
+func anyToStrings(vals []any) []string {
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		s, _ := v.(string)
+		out = append(out, s)
+	}
+	return out
+}
+
 // userinfoBody fetches userinfo with the given bearer token, returning the
 // response status and raw body for the caller to assert on.
 func userinfoBody(t *testing.T, e env, accessToken string) (int, string) {
@@ -91,6 +122,60 @@ func TestTokenExchange(t *testing.T) {
 		e := discover(t, tokenConfig())
 		if !slices.Contains(e.disc.GrantTypes, grantTypeExchange) {
 			t.Fatalf("grant_types_supported = %v, want %s included", e.disc.GrantTypes, grantTypeExchange)
+		}
+	})
+
+	// configured audiences must reach exchanged tokens exactly as they reach
+	// code-flow tokens: op offers no exchange-side audience hook, so hamnir
+	// defaults the omitted RFC 8693 audience parameter from config before op
+	// parses the request. Refresh rotation re-derives the same values, so the
+	// audience no longer flips mid-session.
+	t.Run("configured audiences apply to exchanged tokens", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := tokenConfig()
+		cfg.Audiences = []string{"https://api.example.test"}
+		e := discover(t, cfg)
+		status, body := postExchange(t, e, "myapp", "", exchangeForm("alice-ci", url.Values{
+			"requested_token_type": {tokenTypeRefresh},
+			"scope":                {"openid email"},
+		}))
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body %v)", status, body)
+		}
+		access, _ := body["access_token"].(string)
+		if aud, _ := jwtPayload(t, access)["aud"].([]any); !slices.Equal(anyToStrings(aud), []string{"https://api.example.test"}) {
+			t.Fatalf("exchanged aud = %v, want configured audience", aud)
+		}
+
+		rt, _ := body["refresh_token"].(string)
+		oauthCfg := e.app("myapp", "")
+		refreshed, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: rt}).Token()
+		if err != nil {
+			t.Fatalf("refresh grant: %v", err)
+		}
+		if aud, _ := jwtPayload(t, refreshed.AccessToken)["aud"].([]any); !slices.Equal(anyToStrings(aud), []string{"https://api.example.test"}) {
+			t.Fatalf("refreshed aud = %v, want configured audience (no flip)", aud)
+		}
+	})
+
+	// the RFC 8693 audience parameter stays the caller's override.
+	t.Run("explicit audience wins over config", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := tokenConfig()
+		cfg.Audiences = []string{"https://api.example.test"}
+		e := discover(t, cfg)
+		status, body := postExchange(t, e, "myapp", "", exchangeForm("alice-ci", url.Values{
+			"audience": {"https://other.test"},
+			"scope":    {"openid email"},
+		}))
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body %v)", status, body)
+		}
+		access, _ := body["access_token"].(string)
+		if aud, _ := jwtPayload(t, access)["aud"].([]any); !slices.Equal(anyToStrings(aud), []string{"https://other.test"}) {
+			t.Fatalf("aud = %v, want the explicit audience", aud)
 		}
 	})
 
@@ -311,6 +396,30 @@ func TestTokenExchange(t *testing.T) {
 		}
 		if !strings.Contains(got, "alice@example.test") {
 			t.Fatalf("userinfo = %q, want alice via op-issued subject token", got)
+		}
+	})
+
+	// malformed bodies must fail closed through the composed middleware stack:
+	// the audience middleware parses first, and net/http caches the parsed
+	// form but not the error, so it must answer the failure itself rather
+	// than letting op see a silently-empty form.
+	t.Run("malformed form rejected in both client modes", func(t *testing.T) {
+		t.Parallel()
+
+		registered := tokenConfig()
+		registered.Clients = []config.Client{{ID: "app", Secret: "s3cret"}}
+		for name, cfg := range map[string]*config.Config{"permissive": tokenConfig(), "registered": registered} {
+			e := discover(t, cfg)
+			req, _ := http.NewRequest(http.MethodPost, e.rp.Endpoint().TokenURL, strings.NewReader("a=%zz"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp, err := e.client.Do(req)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			body := readBody(t, resp)
+			if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "error parsing form") {
+				t.Fatalf("%s: status = %d body = %q, want 400 with parse-failure error", name, resp.StatusCode, body)
+			}
 		}
 	})
 }

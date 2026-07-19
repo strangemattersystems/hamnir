@@ -24,13 +24,9 @@ type presentationKey struct{}
 // idempotent and op re-parses from the cached form values.
 func ObserveClientPresentation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Answer parse failures here: net/http caches the partial form but not
-		// the error, so op's own ParseForm would succeed and skip its
-		// "error parsing form" response, surfacing misleading errors instead.
+		// See answerFormParseError for why the failure must be answered here.
 		if err := r.ParseForm(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"error parsing form"}`))
+			answerFormParseError(w)
 			return
 		}
 		var p presentation
@@ -52,4 +48,15 @@ func ObserveClientPresentation(next http.Handler) http.Handler {
 func presentationFrom(ctx context.Context) presentation {
 	p, _ := ctx.Value(presentationKey{}).(presentation)
 	return p
+}
+
+// answerFormParseError mirrors op's invalid_request response for an
+// unparseable form. Every middleware that parses the form early must answer
+// the failure itself: net/http caches the partial form but not the error, so
+// op's own ParseForm would succeed and skip its "error parsing form"
+// response, surfacing misleading errors instead.
+func answerFormParseError(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	_, _ = w.Write([]byte(`{"error":"invalid_request","error_description":"error parsing form"}`))
 }

@@ -5,7 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -213,4 +217,98 @@ func TestStorage_CreateAccessToken_Exchange(t *testing.T) {
 	if sessions[info.SID].clientID != "myapp" {
 		t.Fatalf("session client = %q, want myapp", sessions[info.SID].clientID)
 	}
+}
+
+func TestStorage_DefaultExchangeAudience(t *testing.T) {
+	t.Parallel()
+
+	exchangeGrant := string(oidc.GrantTypeTokenExchange)
+	tests := []struct {
+		name    string
+		method  string
+		form    url.Values
+		basicID string
+		wantAud []string
+	}{
+		{
+			name:    "omitted audience defaulted from config",
+			method:  http.MethodPost,
+			form:    url.Values{"grant_type": {exchangeGrant}},
+			basicID: "app",
+			wantAud: []string{"https://api.example.test"},
+		},
+		{
+			name:    "explicit audience untouched",
+			method:  http.MethodPost,
+			form:    url.Values{"grant_type": {exchangeGrant}, "audience": {"https://other.test"}},
+			basicID: "app",
+			wantAud: []string{"https://other.test"},
+		},
+		{
+			name:    "other grants untouched",
+			method:  http.MethodPost,
+			form:    url.Values{"grant_type": {"refresh_token"}},
+			basicID: "app",
+			wantAud: nil,
+		},
+		{
+			name:   "get requests untouched",
+			method: http.MethodGet,
+			form:   url.Values{"grant_type": {exchangeGrant}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{
+				Audiences: []string{"https://api.example.test"},
+				Personas:  []config.Persona{{Claims: map[string]any{"sub": "usr_alice"}}},
+				Lifetimes: config.DefaultLifetimes,
+			}
+			st, err := NewStorage(cfg, persona.NewSet(cfg), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var gotAud []string
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotAud = r.Form["audience"]
+			})
+			req := httptest.NewRequest(tt.method, "/oauth/token", strings.NewReader(tt.form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			if tt.basicID != "" {
+				req.SetBasicAuth(tt.basicID, "")
+			}
+			st.DefaultExchangeAudience(next).ServeHTTP(httptest.NewRecorder(), req)
+			if !slices.Equal(gotAud, tt.wantAud) {
+				t.Fatalf("audience = %v, want %v", gotAud, tt.wantAud)
+			}
+		})
+	}
+
+	t.Run("malformed form answered with 400", func(t *testing.T) {
+		t.Parallel()
+
+		st := newExchangeStorage(t)
+		nextCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { nextCalled = true })
+		req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader("a=%zz"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		st.DefaultExchangeAudience(next).ServeHTTP(rec, req)
+		if nextCalled {
+			t.Fatal("next handler must not run on a parse failure")
+		}
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "error parsing form") {
+			t.Fatalf("body = %q, want the parse-failure response", rec.Body.String())
+		}
+	})
 }
