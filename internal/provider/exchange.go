@@ -21,9 +21,26 @@ var (
 	_ op.TokenExchangeTokensVerifierStorage = (*Storage)(nil)
 )
 
+// PersonaTokenType is the RFC 8693 token type under which hamnir's static
+// persona tokens (config tokens:) are presented as subject tokens. The
+// standard access-token type is deliberately not accepted for them: RFC 8693
+// §3 defines it as an access token issued by the authorization server, which
+// a configured static credential is not, and invites other URIs for other
+// token types. The URI is a stable identifier, not a resolvable URL.
+const PersonaTokenType oidc.TokenType = "https://hamnir.dev/token-type/persona" //nolint:gosec // G101: a token *type* URI, not a credential value.
+
+// op validates subject/actor/requested token types against the package-global
+// oidc.AllTokenTypes before consulting any storage hook, so the persona type
+// must be registered there for exchange requests to reach hamnir at all.
+// Package init keeps the append race-free: it runs once, before any provider
+// can serve. TestPersonaTokenTypeRegistered guards this across op upgrades.
+func init() {
+	oidc.AllTokenTypes = append(oidc.AllTokenTypes, PersonaTokenType)
+}
+
 var (
 	errUnknownExchangeToken = errors.New("unknown subject token")
-	errExchangeTokenType    = errors.New("static persona tokens must be presented as urn:ietf:params:oauth:token-type:access_token")
+	errExchangeTokenType    = errors.New("static persona tokens must be presented as " + string(PersonaTokenType))
 )
 
 // defaultExchangeScopes is the scope set applied when an exchange request
@@ -34,10 +51,10 @@ var (
 var defaultExchangeScopes = []string{oidc.ScopeOpenID, oidc.ScopeProfile, oidc.ScopeEmail}
 
 // VerifyExchangeSubjectToken resolves a subject_token op itself could not:
-// hamnir's static persona tokens. They are opaque, so they are accepted only
-// under the access-token type (RFC 8693's type for opaque tokens).
+// hamnir's static persona tokens. They are hamnir credentials, not tokens op
+// knows, so they carry hamnir's own token type (see PersonaTokenType).
 func (s *Storage) VerifyExchangeSubjectToken(ctx context.Context, token string, tokenType oidc.TokenType) (string, string, map[string]any, error) {
-	if tokenType != oidc.AccessTokenType {
+	if tokenType != PersonaTokenType {
 		return "", "", nil, errExchangeTokenType
 	}
 	sub, ok := s.exchangeTokens[token]

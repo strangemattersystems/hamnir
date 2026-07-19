@@ -20,6 +20,7 @@ const (
 	tokenTypeAccess   = "urn:ietf:params:oauth:token-type:access_token"
 	tokenTypeID       = "urn:ietf:params:oauth:token-type:id_token"
 	tokenTypeRefresh  = "urn:ietf:params:oauth:token-type:refresh_token"
+	tokenTypePersona  = "https://hamnir.dev/token-type/persona"
 )
 
 // tokenConfig is aliceConfig plus a static exchange token on the persona.
@@ -35,7 +36,7 @@ func exchangeForm(token string, extra url.Values) url.Values {
 	form := url.Values{
 		"grant_type":         {grantTypeExchange},
 		"subject_token":      {token},
-		"subject_token_type": {tokenTypeAccess},
+		"subject_token_type": {tokenTypePersona},
 	}
 	maps.Copy(form, extra)
 	return form
@@ -227,14 +228,15 @@ func TestTokenExchange(t *testing.T) {
 		}
 	})
 
-	// static tokens are opaque, so they are accepted only under the
-	// access-token subject type; other types must not resolve them.
-	t.Run("static token under wrong subject_token_type rejected", func(t *testing.T) {
+	// static tokens are accepted only under hamnir's persona token type: the
+	// standard access-token type means "issued by this server" (RFC 8693 §3),
+	// which a configured static string is not.
+	t.Run("static token under access token type rejected", func(t *testing.T) {
 		t.Parallel()
 
 		e := discover(t, tokenConfig())
 		form := exchangeForm("alice-ci", nil)
-		form.Set("subject_token_type", tokenTypeID)
+		form.Set("subject_token_type", tokenTypeAccess)
 		status, body := postExchange(t, e, "myapp", "", form)
 		if status != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400 (body %v)", status, body)
@@ -282,7 +284,8 @@ func TestTokenExchange(t *testing.T) {
 	})
 
 	// an op-minted access token also works as a subject token: op resolves its
-	// own tokens before falling back to the static-token verifier.
+	// own tokens before falling back to the static-token verifier. Their
+	// standard types stay accurate — only static tokens use the persona type.
 	t.Run("hamnir-issued access token as subject token", func(t *testing.T) {
 		t.Parallel()
 
@@ -295,7 +298,9 @@ func TestTokenExchange(t *testing.T) {
 			t.Fatalf("code exchange: %v", err)
 		}
 
-		status, body := postExchange(t, e, "myapp", "", exchangeForm(tok.AccessToken, url.Values{"scope": {"openid email"}}))
+		form := exchangeForm(tok.AccessToken, url.Values{"scope": {"openid email"}})
+		form.Set("subject_token_type", tokenTypeAccess)
+		status, body := postExchange(t, e, "myapp", "", form)
 		if status != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body %v)", status, body)
 		}

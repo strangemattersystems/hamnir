@@ -71,9 +71,9 @@ func TestStorage_VerifyExchangeSubjectToken(t *testing.T) {
 		wantSub   string
 		wantErr   error
 	}{
-		{name: "known token", token: "alice-ci", tokenType: oidc.AccessTokenType, wantSub: "usr_alice"},
-		{name: "unknown token", token: "nope", tokenType: oidc.AccessTokenType, wantErr: errUnknownExchangeToken},
-		{name: "wrong token type", token: "alice-ci", tokenType: oidc.IDTokenType, wantErr: errExchangeTokenType},
+		{name: "known token", token: "alice-ci", tokenType: PersonaTokenType, wantSub: "usr_alice"},
+		{name: "unknown token", token: "nope", tokenType: PersonaTokenType, wantErr: errUnknownExchangeToken},
+		{name: "access token type rejected", token: "alice-ci", tokenType: oidc.AccessTokenType, wantErr: errExchangeTokenType},
 	}
 	st := newExchangeStorage(t)
 	for _, tt := range tests {
@@ -97,6 +97,17 @@ func TestStorage_VerifyExchangeActorToken(t *testing.T) {
 	_, _, _, err := st.VerifyExchangeActorToken(context.Background(), "alice-ci", oidc.AccessTokenType)
 	if !errors.Is(err, errNotSupported) {
 		t.Fatalf("err = %v, want %v", err, errNotSupported)
+	}
+}
+
+// TestPersonaTokenTypeRegistered guards the op upgrade path: op rejects
+// subject token types missing from oidc.AllTokenTypes before any storage
+// hook runs, so the init-time registration must survive library bumps.
+func TestPersonaTokenTypeRegistered(t *testing.T) {
+	t.Parallel()
+
+	if !slices.Contains(oidc.AllTokenTypes, PersonaTokenType) {
+		t.Fatalf("PersonaTokenType %q not registered in oidc.AllTokenTypes", PersonaTokenType)
 	}
 }
 
@@ -139,6 +150,11 @@ func TestStorage_ValidateTokenExchangeRequest(t *testing.T) {
 		{
 			name:    "unsupported requested type",
 			req:     &fakeExchangeRequest{exchangeSubject: "usr_alice", requestedTokenType: oidc.JWTTokenType},
+			wantErr: true,
+		},
+		{
+			name:    "persona type not issuable",
+			req:     &fakeExchangeRequest{exchangeSubject: "usr_alice", requestedTokenType: PersonaTokenType},
 			wantErr: true,
 		},
 	}
