@@ -581,34 +581,17 @@ func TestDeviceFlow(t *testing.T) {
 
 // pollDevice hits the token endpoint with the device_code grant once,
 // returning the OAuth error code ("" on success) and the token response.
-//
-// Adaptation from the task brief: op requires client authentication even for
-// this public device client in permissive mode, so — mirroring how
-// postExchange authenticates — this sends Basic auth with an empty secret
-// for "cli" rather than the bare client_id form field.
+// op requires client authentication even for a public device client in
+// permissive mode, so it polls through postExchange, which sends Basic auth
+// with an empty secret rather than a bare client_id form field.
 func pollDevice(t *testing.T, e env, deviceCode string) (string, map[string]any) {
 	t.Helper()
-	form := url.Values{
+	_, body := postExchange(t, e, "cli", "", url.Values{
 		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
 		"device_code": {deviceCode},
-	}
-	req, err := http.NewRequest(http.MethodPost, e.srv.URL+"/oauth/token", strings.NewReader(form.Encode()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth("cli", "")
-	resp, err := e.client.Do(req)
-	if err != nil {
-		t.Fatalf("token poll: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var body map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
-	if e, _ := body["error"].(string); e != "" {
-		return e, body
+	})
+	if errCode, _ := body["error"].(string); errCode != "" {
+		return errCode, body
 	}
 	return "", body
 }
