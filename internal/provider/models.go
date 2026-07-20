@@ -31,6 +31,8 @@ type authRequest struct {
 	responseMode  oidc.ResponseMode
 	codeChallenge *oidc.CodeChallenge
 	audiences     []string // resolved aud values; nil -> default [clientID]
+	loginHint     string
+	prompt        oidc.SpaceDelimitedArray
 	createdAt     time.Time
 	code          string // authorization code, once issued (reverse index into Storage.codes)
 
@@ -171,7 +173,7 @@ func permissiveClient(id string, p presentation, idTokenLifetime time.Duration) 
 		postLogoutRedirectURIs: postLogout,
 		applicationType:        op.ApplicationTypeWeb,
 		authMethod:             authMethod,
-		grantTypes:             []oidc.GrantType{oidc.GrantTypeCode, oidc.GrantTypeRefreshToken, oidc.GrantTypeTokenExchange},
+		grantTypes:             []oidc.GrantType{oidc.GrantTypeCode, oidc.GrantTypeRefreshToken, oidc.GrantTypeTokenExchange, oidc.GrantTypeDeviceCode},
 		responseTypes:          []oidc.ResponseType{oidc.ResponseTypeCode},
 		accessTokenType:        op.AccessTokenTypeJWT,
 		devMode:                true,
@@ -194,7 +196,7 @@ func clientFromConfig(c config.Client, idTokenLifetime time.Duration) *client {
 		postLogoutRedirectURIs: c.PostLogoutRedirectURIs,
 		applicationType:        op.ApplicationTypeWeb,
 		authMethod:             authMethod,
-		grantTypes:             []oidc.GrantType{oidc.GrantTypeCode, oidc.GrantTypeRefreshToken, oidc.GrantTypeTokenExchange},
+		grantTypes:             []oidc.GrantType{oidc.GrantTypeCode, oidc.GrantTypeRefreshToken, oidc.GrantTypeTokenExchange, oidc.GrantTypeDeviceCode},
 		responseTypes:          []oidc.ResponseType{oidc.ResponseTypeCode},
 		accessTokenType:        op.AccessTokenTypeJWT,
 		devMode:                false,

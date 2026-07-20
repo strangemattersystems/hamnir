@@ -14,7 +14,7 @@ Two steps: create a config that lists your personas, then run the server on it. 
 
 Scaffold a starter config as `./hamnir.yaml`.
 
-With the CLI:
+With the CLI — `go install` it, or grab a prebuilt binary for macOS, Linux or Windows from the [releases page](https://github.com/strangemattersystems/hamnir/releases/latest):
 
 ```bash
 go install github.com/strangemattersystems/hamnir/cmd/hamnir@latest
@@ -93,6 +93,31 @@ The knobs:
 - Ask for an ID token instead with `-d requested_token_type=urn:ietf:params:oauth:token-type:id_token`.
 - Your configured `audiences:` apply to exchanged tokens just like every other flow. Override per request with `-d audience=https://other.test` — the override applies to the tokens from that exchange; refreshed tokens re-derive their audience from config.
 - In permissive mode, `-u myapp:` just names the client your tokens are minted for (any id, no secret). With registered clients, use one of them: a client with a `secret` authenticates as usual (`-u id:secret`), and a public client simply identifies itself with an empty secret (`-u id:`).
+
+## Skip the picker
+
+Browser flows can be hands-free too: send the standard OIDC `login_hint` parameter on the authorization request and hamnir signs the matching persona straight in — no picker, no click. A hint matches a persona's `sub` exactly or its `email` ignoring case; anything else — including a hint matching two personas — just pre-fills the picker's search box. Send `prompt=select_account` (or `prompt=login`) to get the picker back.
+
+This makes browser end-to-end tests fully non-interactive: start your app's login with a hint — the [example webapp](examples/) forwards `/login?hint=alice@example.test` — and the whole redirect dance completes without touching the page.
+
+## Device flow
+
+Building a CLI or anything else that logs in like `gh auth login`? hamnir speaks the standard device authorization grant (RFC 8628):
+
+```bash
+curl http://localhost:5556/device_authorization \
+  -d client_id=my-cli -d scope="openid profile email"
+```
+
+The response carries a `user_code` and a `verification_uri` — open it, enter the code (or follow `verification_uri_complete`, which skips the typing), and the persona picker appears: choosing a persona approves the device, and there's a deny link for testing the rejection path. Meanwhile your client polls the token endpoint — identifying itself like every token-endpoint call above (`-u my-cli:` in permissive mode) — and receives the persona's tokens the moment you decide:
+
+```bash
+curl -u my-cli: http://localhost:5556/oauth/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:device_code \
+  -d device_code=<device_code from the first response>
+```
+
+Until then it answers `authorization_pending`; deny and it answers `access_denied` — exactly as the RFC prescribes.
 
 ## What you can configure
 

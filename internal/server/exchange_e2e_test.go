@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"encoding/base64"
@@ -109,7 +109,8 @@ func userinfoBody(t *testing.T, e env, accessToken string) (int, string) {
 
 // TestTokenExchange drives programmatic login end to end: a static persona
 // token POSTed to the standard token endpoint yields real hamnir tokens. No
-// subtest sets browser_url, so parallel execution is safe (see TestEndToEnd).
+// subtest sets browser_url, so parallel execution is safe (see the
+// parallel-safety note atop harness_test.go).
 func TestTokenExchange(t *testing.T) {
 	t.Parallel()
 

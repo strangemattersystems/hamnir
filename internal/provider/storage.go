@@ -29,8 +29,8 @@ const (
 )
 
 // errNotSupported is returned by op.Storage methods for flows hamnir does not
-// implement (device authorization, JWT-profile / client assertions,
-// client-secret credential grants).
+// implement (JWT-profile / client assertions, client-secret credential
+// grants).
 var errNotSupported = errors.New("not supported by hamnir")
 
 // ErrAuthRequestNotFound and ErrAuthRequestDone let the login UI distinguish
@@ -56,11 +56,13 @@ type Storage struct {
 	// lookups need no lock.
 	exchangeTokens map[string]string
 
-	mu           sync.Mutex
-	authRequests map[string]*authRequest       // id -> request
-	codes        map[string]string             // authorization code -> request id
-	accessTokens map[string]*accessTokenInfo   // jti -> token metadata
-	sessions     map[string]map[string]session // subject -> active sid -> session
+	mu              sync.Mutex
+	authRequests    map[string]*authRequest       // id -> request
+	codes           map[string]string             // authorization code -> request id
+	accessTokens    map[string]*accessTokenInfo   // jti -> token metadata
+	sessions        map[string]map[string]session // subject -> active sid -> session
+	deviceRequests  map[string]*deviceRequest     // device code -> request
+	deviceUserCodes map[string]string             // normalized user code -> device code
 }
 
 // session records which client a sid was minted for and when a token carrying
@@ -108,10 +110,12 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 		signing:        &signingKey{id: kid, key: key},
 		exchangeTokens: exchangeTokens,
 
-		authRequests: make(map[string]*authRequest),
-		codes:        make(map[string]string),
-		accessTokens: make(map[string]*accessTokenInfo),
-		sessions:     make(map[string]map[string]session),
+		authRequests:    make(map[string]*authRequest),
+		codes:           make(map[string]string),
+		accessTokens:    make(map[string]*accessTokenInfo),
+		sessions:        make(map[string]map[string]session),
+		deviceRequests:  make(map[string]*deviceRequest),
+		deviceUserCodes: make(map[string]string),
 	}, nil
 }
 
@@ -178,6 +182,8 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 		responseMode:  authReq.ResponseMode,
 		codeChallenge: codeChallenge(authReq),
 		audiences:     s.audienceFor(authReq.ClientID),
+		loginHint:     authReq.LoginHint,
+		prompt:        authReq.Prompt,
 		createdAt:     time.Now(),
 		subject:       userID,
 	}
@@ -217,6 +223,24 @@ func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthReques
 		return nil, fmt.Errorf("auth request %q: %w", id, ErrAuthRequestNotFound)
 	}
 	return snapshot(req), nil
+}
+
+// LoginHint returns the login_hint carried by an auth request and whether
+// hamnir may auto-select the hinted persona. Auto-login is off once the
+// request is done and when the RP's prompt asks for interaction
+// (select_account or login) — those still return the hint so the picker
+// can prefill its search box. Unknown or hint-less requests return "", false.
+func (s *Storage) LoginHint(authRequestID string) (hint string, allowAuto bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	req, ok := s.authRequests[authRequestID]
+	if !ok || req.loginHint == "" {
+		return "", false
+	}
+	allowAuto = !req.done &&
+		!slices.Contains(req.prompt, oidc.PromptSelectAccount) &&
+		!slices.Contains(req.prompt, oidc.PromptLogin)
+	return req.loginHint, allowAuto
 }
 
 func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRequest, error) {
@@ -272,10 +296,12 @@ func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	// An exchange starts a session outside the picker flow, which registers
-	// sessions in AuthenticateAndComplete; register it here instead so
-	// logout/termination reaches programmatic logins too.
-	if _, ok := request.(op.TokenExchangeRequest); ok {
+	// An exchange or device authorization starts a session outside the
+	// picker flow, which registers sessions in AuthenticateAndComplete;
+	// register it here instead so logout/termination reaches these
+	// programmatic logins too.
+	switch request.(type) {
+	case op.TokenExchangeRequest, *op.DeviceAuthorizationState:
 		s.touchSession(info)
 	}
 	jti, exp := s.storeAccessToken(info)
@@ -287,9 +313,11 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	// An exchange starts a session outside the picker flow; register it here
-	// too (see CreateAccessToken) so logout/termination reaches it.
-	if _, ok := request.(op.TokenExchangeRequest); ok {
+	// An exchange or device authorization starts a session outside the
+	// picker flow; register it here too (see CreateAccessToken) so
+	// logout/termination reaches it.
+	switch request.(type) {
+	case op.TokenExchangeRequest, *op.DeviceAuthorizationState:
 		s.touchSession(info)
 	}
 	jti, exp := s.storeAccessToken(info)
@@ -319,10 +347,10 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 func (s *Storage) touchSession(info TokenClaims) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Every token exchange mints a fresh sid (see requestInfo) and reaches
-	// this method, never AuthenticateAndComplete's picker-only prune, so a
-	// long-lived server driven only by token exchange would otherwise grow
-	// s.sessions without bound.
+	// Every token exchange or device authorization mints a fresh sid (see
+	// requestInfo) and reaches this method, never AuthenticateAndComplete's
+	// picker-only prune, so a long-lived server driven only by these flows
+	// would otherwise grow s.sessions without bound.
 	now := time.Now()
 	s.pruneSessionsLocked(now)
 	if s.sessions[info.Sub] == nil {
@@ -616,7 +644,7 @@ func (s *Storage) Health(ctx context.Context) error { return nil }
 
 // requestInfo extracts the token claims from the concrete op.TokenRequest
 // types hamnir produces (auth-code flow and refresh flow) and op's token
-// exchange requests.
+// exchange and device authorization requests.
 func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 	switch r := req.(type) {
 	case *authRequest:
@@ -627,6 +655,11 @@ func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 		// A token exchange is a fresh programmatic login: mint a new session
 		// id so its refresh tokens are revocable like any other session's.
 		return TokenClaims{Sub: r.GetSubject(), ClientID: r.GetClientID(), SID: randID(), Scopes: r.GetScopes()}, nil
+	case *op.DeviceAuthorizationState:
+		// A device authorization is a fresh login outside the picker flow:
+		// mint a new session id so its refresh tokens are revocable like any
+		// other session's (same treatment as a token exchange).
+		return TokenClaims{Sub: r.Subject, ClientID: r.ClientID, SID: randID(), Scopes: r.Scopes}, nil
 	default:
 		// No other flow should reach token creation (unsupported grants are
 		// cut off earlier); minting from an unknown type would silently issue

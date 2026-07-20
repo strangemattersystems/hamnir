@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Enter the code shown on your device. hamnir is a local OpenID Connect provider for development and testing.">
+<title>hamnir — connect a device</title>
+<style>{{ .CSS }}</style>
+</head>
+<body>
+<div class="app">
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <div class="brand">
+        <div class="brand-name">hamnir</div>
+        <div class="brand-tagline">dev-only OpenID Connect provider</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="device-title">Connect a device</h1>
+    <p class="device-lede">Enter the code shown on the device you are signing in.</p>
+    {{ if .Message }}<p class="device-message" role="status">{{ .Message }}</p>{{ end }}
+    <form class="device-form" method="get" action="/device">
+      <input name="user_code" type="text" placeholder="XXXX-XXXX" autocomplete="off" autofocus
+             aria-label="Device code" spellcheck="false">
+      <button class="device-submit">Continue</button>
+    </form>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p class="caption">Codes are shown by the app asking to connect.</p>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

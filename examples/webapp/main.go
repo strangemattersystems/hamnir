@@ -176,8 +176,10 @@ func (a *app) handleHome(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, homePage)
 }
 
-// handleLogin starts the flow: mint state, nonce and a PKCE verifier, stash them in short-lived cookies,
-// and redirect the browser to hamnir's persona picker.
+// handleLogin starts the flow: mint state/nonce/PKCE, stash them in cookies,
+// and redirect to hamnir's authorization endpoint. An optional ?hint= query
+// parameter is forwarded as the standard login_hint so hamnir can skip or
+// pre-seed the persona picker.
 func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	state := randString()
 	nonce := randString()
@@ -185,8 +187,11 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	setCookie(w, "state", state)
 	setCookie(w, "nonce", nonce)
 	setCookie(w, "pkce", verifier)
-	url := a.oauth2.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier))
-	http.Redirect(w, r, url, http.StatusFound)
+	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)}
+	if hint := r.URL.Query().Get("hint"); hint != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("login_hint", hint))
+	}
+	http.Redirect(w, r, a.oauth2.AuthCodeURL(state, opts...), http.StatusFound)
 }
 
 // handleCallback completes the flow: validate state, exchange the code (with the PKCE verifier),

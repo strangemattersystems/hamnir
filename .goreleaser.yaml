@@ -66,9 +66,22 @@ changelog:
 release:
   prerelease: auto
 
+gomod:
+  proxy: true
+
 # Requires syft on PATH (installed in CI).
 sboms:
   - artifacts: archive
+
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args: ["sign-blob", "--output-signature=${signature}", "--output-certificate=${certificate}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+docker_signs:
+  - cmd: cosign
+    args: ["sign", "${artifact}@${digest}", "--yes"]
 
 dockers_v2:
   - images:
@@ -83,8 +96,11 @@ dockers_v2:
       - "{{ if not .Prerelease }}latest{{ end }}"
     labels:
       org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: "OpenID Connect provider for local development: sign in as personas you define, in a single click"
       org.opencontainers.image.source: "https://github.com/strangemattersystems/hamnir"
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
       org.opencontainers.image.licenses: MIT
+    annotations:
+      org.opencontainers.image.description: "OpenID Connect provider for local development: sign in as personas you define, in a single click"

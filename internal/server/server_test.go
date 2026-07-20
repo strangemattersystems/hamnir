@@ -1,19 +1,18 @@
-package server
+package server_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
+	"github.com/strangemattersystems/hamnir/internal/server"
 )
-
-// testVersion is the version line newServer wires into New, so the /up endpoint
-// has a known string to echo.
-const testVersion = "hamnir 9.9.9-test (rev deadbeef, built 2026-01-01T00:00:00Z)"
 
 func TestNew(t *testing.T) {
 	t.Parallel()
@@ -75,7 +74,7 @@ func TestNew(t *testing.T) {
 
 		// A config with no signing key cannot build the token signer, so New
 		// must surface the error rather than return a half-built handler.
-		if _, err := New(&config.Config{Lifetimes: config.DefaultLifetimes}, testVersion); err == nil {
+		if _, err := server.New(&config.Config{Lifetimes: config.DefaultLifetimes}, testVersion); err == nil {
 			t.Fatal("New with a nil signing key should fail")
 		}
 	})
@@ -119,6 +118,68 @@ func TestNew(t *testing.T) {
 					t.Errorf("content-type = %q, want image/svg+xml", resp.Header.Get("Content-Type"))
 				}
 			})
+		}
+	})
+}
+
+func TestDiscoveryDocument(t *testing.T) {
+	t.Parallel()
+
+	srv, client := newServer(t, aliceConfig())
+	resp, err := client.Get(srv.URL + "/.well-known/openid-configuration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("discovery status %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		ResponseTypes []string `json:"response_types_supported"`
+		GrantTypes    []string `json:"grant_types_supported"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("advertises only the code response type", func(t *testing.T) {
+		if !slices.Equal(doc.ResponseTypes, []string{"code"}) {
+			t.Errorf("response_types_supported = %q, want [code]", doc.ResponseTypes)
+		}
+	})
+
+	t.Run("does not advertise signing algs for the unaccepted private_key_jwt", func(t *testing.T) {
+		for _, key := range []string{
+			"introspection_endpoint_auth_signing_alg_values_supported",
+			"revocation_endpoint_auth_signing_alg_values_supported",
+		} {
+			if _, ok := fields[key]; ok {
+				t.Errorf("document advertises %s while private_key_jwt is not an accepted auth method", key)
+			}
+		}
+	})
+
+	t.Run("does not advertise unserved grants", func(t *testing.T) {
+		for _, grant := range []string{"implicit", "urn:ietf:params:oauth:grant-type:jwt-bearer"} {
+			if slices.Contains(doc.GrantTypes, grant) {
+				t.Errorf("grant_types_supported advertises %q: %q", grant, doc.GrantTypes)
+			}
+		}
+	})
+
+	t.Run("keeps the served grants", func(t *testing.T) {
+		for _, want := range []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange", "urn:ietf:params:oauth:grant-type:device_code"} {
+			if !slices.Contains(doc.GrantTypes, want) {
+				t.Errorf("grant_types_supported missing %q (got %q)", want, doc.GrantTypes)
+			}
 		}
 	})
 }
