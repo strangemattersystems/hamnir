@@ -100,6 +100,25 @@ Browser flows can be hands-free too: send the standard OIDC `login_hint` paramet
 
 This makes browser end-to-end tests fully non-interactive: start your app's login with a hint — the [example webapp](examples/) forwards `/login?hint=alice@example.test` — and the whole redirect dance completes without touching the page.
 
+## Device flow
+
+Building a CLI or anything else that logs in like `gh auth login`? hamnir speaks the standard device authorization grant (RFC 8628):
+
+```bash
+curl http://localhost:5556/device_authorization \
+  -d client_id=my-cli -d scope="openid profile email"
+```
+
+The response carries a `user_code` and a `verification_uri` — open it, enter the code (or follow `verification_uri_complete`, which skips the typing), and the persona picker appears: choosing a persona approves the device, and there's a deny link for testing the rejection path. Meanwhile your client polls the token endpoint — identifying itself like every token-endpoint call above (`-u my-cli:` in permissive mode) — and receives the persona's tokens the moment you decide:
+
+```bash
+curl -u my-cli: http://localhost:5556/oauth/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:device_code \
+  -d device_code=<device_code from the first response>
+```
+
+Until then it answers `authorization_pending`; deny and it answers `access_denied` — exactly as the RFC prescribes.
+
 ## What you can configure
 
 Everything lives in one config file — `hamnir init` scaffolds it and `hamnir validate` checks it. The [example config](examples/hamnir.yaml) walks through each of these in comments:
