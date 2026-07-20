@@ -30,6 +30,7 @@ type Handler struct {
 	set         *persona.Set
 	cfg         *config.Config
 	complete    func(authRequestID, sub string) error
+	loginHint   func(authRequestID string) (hint string, allowAuto bool)
 	callbackURL string
 	tmpl        *template.Template
 	css         template.CSS // the stylesheet, inlined into every page
@@ -56,12 +57,14 @@ type pageVM struct {
 	Groups        []groupVM
 	CSS           template.CSS
 	JS            template.JS
+	SearchQuery   string
 }
 
-// NewHandler builds a picker Handler. complete records the chosen persona on the
-// pending auth request, and callbackURL is where a completed selection redirects
-// to hand control back to the OpenID provider.
-func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, string) error, callbackURL string) *Handler {
+// NewHandler builds a picker Handler. complete records the chosen persona on
+// the pending auth request, loginHint reports a request's login_hint and
+// whether auto-selection is permitted, and callbackURL is where a completed
+// selection redirects to hand control back to the OpenID provider.
+func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, string) error, loginHint func(string) (string, bool), callbackURL string) *Handler {
 	tmpl := template.Must(template.ParseFS(assets, "templates/*.tmpl"))
 	raw, err := assets.ReadFile("static/style.css")
 	if err != nil {
@@ -73,7 +76,7 @@ func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, stri
 		panic("web: embedded static/search.js: " + err.Error())
 	}
 	js := template.JS(rawJS) //nolint:gosec // G203: rawJS is our own embedded script, not user input.
-	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl, css: css, js: js}
+	return &Handler{set: set, cfg: cfg, complete: complete, loginHint: loginHint, callbackURL: callbackURL, tmpl: tmpl, css: css, js: js}
 }
 
 // Routes registers the picker's handlers on mux: the GET login page and the
@@ -84,7 +87,23 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 }
 
 func (h *Handler) getLogin(w http.ResponseWriter, r *http.Request) {
-	vm := h.buildPage(r.URL.Query().Get(provider.AuthRequestIDParam))
+	authRequestID := r.URL.Query().Get(provider.AuthRequestIDParam)
+
+	// A login_hint that pins down exactly one persona logs straight in —
+	// unless the RP's prompt insists on interaction. Failures (expired,
+	// already done) degrade to the picker rather than an error page.
+	hint, allowAuto := h.loginHint(authRequestID)
+	if allowAuto {
+		if sub := h.hintedSub(hint); sub != "" {
+			if err := h.complete(authRequestID, sub); err == nil {
+				http.Redirect(w, r, h.callbackURL+"?id="+url.QueryEscape(authRequestID), http.StatusFound)
+				return
+			}
+		}
+	}
+
+	vm := h.buildPage(authRequestID)
+	vm.SearchQuery = hint
 	// Render to a buffer first: the page is tiny, and a mid-render failure
 	// must become a logged 500 rather than a silently truncated 200.
 	var buf bytes.Buffer
@@ -177,4 +196,27 @@ func initial(name string) string {
 // the persona's name, description and sub, lowercased and space-joined.
 func searchText(name, description, sub string) string {
 	return strings.ToLower(strings.Join(strings.Fields(name+" "+description+" "+sub), " "))
+}
+
+// hintedSub resolves a login_hint to a persona: a persona is a candidate when
+// its sub equals the hint exactly or its email claim equals it ignoring case.
+// The sub is returned only when precisely one persona is a candidate.
+func (h *Handler) hintedSub(hint string) string {
+	if hint == "" {
+		return ""
+	}
+	var sub string
+	matches := 0
+	for p := range h.set.All() {
+		psub, _ := p.Claims["sub"].(string)
+		email, _ := p.Claims["email"].(string)
+		if psub == hint || (email != "" && strings.EqualFold(email, hint)) {
+			sub = psub
+			matches++
+		}
+	}
+	if matches != 1 {
+		return ""
+	}
+	return sub
 }

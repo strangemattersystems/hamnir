@@ -42,7 +42,7 @@ func New(cfg *config.Config, version string) (http.Handler, error) {
 	// configured audiences are defaulted into the request itself.
 	ph = st.DefaultExchangeAudience(ph)
 	mux.Handle("/", ph)
-	web.NewHandler(set, cfg, st.AuthenticateAndComplete, provider.AuthCallbackPath).Routes(mux)
+	web.NewHandler(set, cfg, st.AuthenticateAndComplete, st.LoginHint, provider.AuthCallbackPath).Routes(mux)
 	static.Register(mux, cfg.Static.Paths)
 	mux.HandleFunc("GET /up", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

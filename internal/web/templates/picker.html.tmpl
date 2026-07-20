@@ -20,7 +20,7 @@
 
   <main class="wrap">
     <div class="search" hidden>
-      <input type="search" placeholder="Search personas…" autocomplete="off" aria-label="Search personas">
+      <input type="search" placeholder="Search personas…" autocomplete="off" aria-label="Search personas" value="{{ .SearchQuery }}">
     </div>
     {{ range .Groups }}
     <section class="group" style="--accent: {{ .Colour }}">
