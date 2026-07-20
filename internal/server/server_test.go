@@ -148,9 +148,11 @@ func TestDiscoveryDocument(t *testing.T) {
 		}
 	})
 
-	t.Run("does not advertise the implicit grant", func(t *testing.T) {
-		if slices.Contains(doc.GrantTypes, "implicit") {
-			t.Errorf("grant_types_supported advertises implicit: %q", doc.GrantTypes)
+	t.Run("does not advertise unserved grants", func(t *testing.T) {
+		for _, grant := range []string{"implicit", "urn:ietf:params:oauth:grant-type:jwt-bearer"} {
+			if slices.Contains(doc.GrantTypes, grant) {
+				t.Errorf("grant_types_supported advertises %q: %q", grant, doc.GrantTypes)
+			}
 		}
 	})
 
