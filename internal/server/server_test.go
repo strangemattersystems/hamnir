@@ -134,17 +134,36 @@ func TestDiscoveryDocument(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("discovery status %d", resp.StatusCode)
 	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var doc struct {
 		ResponseTypes []string `json:"response_types_supported"`
 		GrantTypes    []string `json:"grant_types_supported"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Run("advertises only the code response type", func(t *testing.T) {
 		if !slices.Equal(doc.ResponseTypes, []string{"code"}) {
 			t.Errorf("response_types_supported = %q, want [code]", doc.ResponseTypes)
+		}
+	})
+
+	t.Run("does not advertise signing algs for the unaccepted private_key_jwt", func(t *testing.T) {
+		for _, key := range []string{
+			"introspection_endpoint_auth_signing_alg_values_supported",
+			"revocation_endpoint_auth_signing_alg_values_supported",
+		} {
+			if _, ok := fields[key]; ok {
+				t.Errorf("document advertises %s while private_key_jwt is not an accepted auth method", key)
+			}
 		}
 	})
 
