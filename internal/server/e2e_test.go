@@ -382,6 +382,67 @@ func TestEndToEnd(t *testing.T) {
 	})
 }
 
+func TestEndToEnd_LoginHint(t *testing.T) {
+	t.Parallel()
+
+	t.Run("auto-login skips the picker", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "", "email")
+		verifier := oauth2.GenerateVerifier()
+		authURL := oauthCfg.AuthCodeURL("state123",
+			oidc.Nonce("nonce123"),
+			oauth2.S256ChallengeOption(verifier),
+			oauth2.SetAuthURLParam("login_hint", "alice@example.test"))
+
+		resp, err := e.client.Get(authURL)
+		if err != nil {
+			t.Fatalf("authorize: %v", err)
+		}
+		code := codeFrom(resp)
+		if code == "" {
+			t.Fatalf("expected the hinted flow to end at the app redirect with a code; final status %d, body: %s",
+				resp.StatusCode, readBody(t, resp))
+		}
+
+		tok, err := oauthCfg.Exchange(e.ctx, code, oauth2.VerifierOption(verifier))
+		if err != nil {
+			t.Fatalf("exchange: %v", err)
+		}
+		rawID, _ := tok.Extra("id_token").(string)
+		var claims struct {
+			Sub string `json:"sub"`
+		}
+		decodeJWTPayload(t, rawID, &claims)
+		if claims.Sub != "usr_alice" {
+			t.Fatalf("hinted login issued sub %q, want usr_alice", claims.Sub)
+		}
+	})
+
+	t.Run("prompt=select_account forces the prefilled picker", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, aliceConfig())
+		oauthCfg := e.app("isen", "", "email")
+		authURL := oauthCfg.AuthCodeURL("state123",
+			oauth2.SetAuthURLParam("login_hint", "alice@example.test"),
+			oauth2.SetAuthURLParam("prompt", "select_account"))
+
+		resp, err := e.client.Get(authURL)
+		if err != nil {
+			t.Fatalf("authorize: %v", err)
+		}
+		body := readBody(t, resp)
+		if !strings.Contains(body, `name="authRequestID"`) {
+			t.Fatalf("expected the picker page, got: %s", body)
+		}
+		if !strings.Contains(body, `value="alice@example.test"`) {
+			t.Errorf("expected the search box prefilled with the hint, got: %s", body)
+		}
+	})
+}
+
 // aliceConfig is the minimal permissive-mode config used across the end-to-end
 // tests: a single persona, no clients (so any client_id/redirect_uri is accepted).
 func aliceConfig() *config.Config {
