@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"slices"
@@ -472,4 +473,142 @@ func aliceConfig() *config.Config {
 			"email_verified": true, "roles": []any{"coach"},
 		}},
 	}}
+}
+
+func TestDeviceFlow(t *testing.T) {
+	t.Parallel()
+
+	// startDevice kicks off RFC 8628: request codes, prove the token
+	// endpoint answers authorization_pending while undecided.
+	startDevice := func(t *testing.T, e env) (deviceCode, userCode string) {
+		t.Helper()
+		resp, err := e.client.PostForm(e.srv.URL+"/device_authorization", url.Values{
+			"client_id": {"cli"}, "scope": {"openid email"},
+		})
+		if err != nil {
+			t.Fatalf("device_authorization: %v", err)
+		}
+		var da struct {
+			DeviceCode              string `json:"device_code"`
+			UserCode                string `json:"user_code"`
+			VerificationURI         string `json:"verification_uri"`
+			VerificationURIComplete string `json:"verification_uri_complete"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&da); err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if da.UserCode == "" || !strings.Contains(da.VerificationURIComplete, "user_code=") {
+			t.Fatalf("unexpected device authorization response: %+v", da)
+		}
+		if errCode, _ := pollDevice(t, e, da.DeviceCode); errCode != "authorization_pending" {
+			t.Fatalf("pre-decision poll = %q, want authorization_pending", errCode)
+		}
+		return da.DeviceCode, da.UserCode
+	}
+
+	t.Run("approved device gets tokens for the chosen persona", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, aliceConfig())
+		deviceCode, userCode := startDevice(t, e)
+
+		// The user visits the complete URI and approves as Alice.
+		page, err := e.client.Get(e.srv.URL + "/device?user_code=" + url.QueryEscape(userCode))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body := readBody(t, page); !strings.Contains(body, `action="/device/select"`) {
+			t.Fatalf("expected the device picker, got: %s", body)
+		}
+		done, err := e.client.PostForm(e.srv.URL+"/device/select", url.Values{
+			"userCode": {userCode}, "sub": {"usr_alice"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body := readBody(t, done); !strings.Contains(body, "Device connected") {
+			t.Fatalf("expected the connected page, got: %s", body)
+		}
+
+		errCode, tok := pollDevice(t, e, deviceCode)
+		if errCode != "" {
+			t.Fatalf("post-approval poll error %q", errCode)
+		}
+		var claims struct {
+			Sub string `json:"sub"`
+		}
+		decodeJWTPayload(t, tok["id_token"].(string), &claims)
+		if claims.Sub != "usr_alice" {
+			t.Fatalf("device tokens for sub %q, want usr_alice", claims.Sub)
+		}
+		if tok["refresh_token"] == nil {
+			t.Fatal("expected a refresh token from the device grant")
+		}
+
+		// The device session refreshes like any other login.
+		refreshed, err := e.client.PostForm(e.srv.URL+"/oauth/token", url.Values{
+			"grant_type":    {"refresh_token"},
+			"refresh_token": {tok["refresh_token"].(string)},
+			"client_id":     {"cli"},
+		})
+		if err != nil {
+			t.Fatalf("refresh: %v", err)
+		}
+		var rt map[string]any
+		if err := json.NewDecoder(refreshed.Body).Decode(&rt); err != nil {
+			t.Fatal(err)
+		}
+		_ = refreshed.Body.Close()
+		if rt["access_token"] == nil {
+			t.Fatalf("refresh grant failed: %v", rt)
+		}
+	})
+
+	t.Run("denied device polls access_denied", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, aliceConfig())
+		deviceCode, userCode := startDevice(t, e)
+		if _, err := e.client.PostForm(e.srv.URL+"/device/deny", url.Values{"userCode": {userCode}}); err != nil {
+			t.Fatal(err)
+		}
+		if errCode, _ := pollDevice(t, e, deviceCode); errCode != "access_denied" {
+			t.Fatalf("post-denial poll = %q, want access_denied", errCode)
+		}
+	})
+}
+
+// pollDevice hits the token endpoint with the device_code grant once,
+// returning the OAuth error code ("" on success) and the token response.
+//
+// Adaptation from the task brief: op requires client authentication even for
+// this public device client in permissive mode, so — mirroring how
+// postExchange authenticates — this sends Basic auth with an empty secret
+// for "cli" rather than the bare client_id form field.
+func pollDevice(t *testing.T, e env, deviceCode string) (string, map[string]any) {
+	t.Helper()
+	form := url.Values{
+		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
+		"device_code": {deviceCode},
+	}
+	req, err := http.NewRequest(http.MethodPost, e.srv.URL+"/oauth/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth("cli", "")
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatalf("token poll: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := body["error"].(string); e != "" {
+		return e, body
+	}
+	return "", body
 }

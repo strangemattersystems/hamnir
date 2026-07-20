@@ -296,10 +296,12 @@ func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	// An exchange starts a session outside the picker flow, which registers
-	// sessions in AuthenticateAndComplete; register it here instead so
-	// logout/termination reaches programmatic logins too.
-	if _, ok := request.(op.TokenExchangeRequest); ok {
+	// An exchange or device authorization starts a session outside the
+	// picker flow, which registers sessions in AuthenticateAndComplete;
+	// register it here instead so logout/termination reaches these
+	// programmatic logins too.
+	switch request.(type) {
+	case op.TokenExchangeRequest, *op.DeviceAuthorizationState:
 		s.touchSession(info)
 	}
 	jti, exp := s.storeAccessToken(info)
@@ -311,9 +313,11 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	// An exchange starts a session outside the picker flow; register it here
-	// too (see CreateAccessToken) so logout/termination reaches it.
-	if _, ok := request.(op.TokenExchangeRequest); ok {
+	// An exchange or device authorization starts a session outside the
+	// picker flow; register it here too (see CreateAccessToken) so
+	// logout/termination reaches it.
+	switch request.(type) {
+	case op.TokenExchangeRequest, *op.DeviceAuthorizationState:
 		s.touchSession(info)
 	}
 	jti, exp := s.storeAccessToken(info)
@@ -343,10 +347,10 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 func (s *Storage) touchSession(info TokenClaims) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Every token exchange mints a fresh sid (see requestInfo) and reaches
-	// this method, never AuthenticateAndComplete's picker-only prune, so a
-	// long-lived server driven only by token exchange would otherwise grow
-	// s.sessions without bound.
+	// Every token exchange or device authorization mints a fresh sid (see
+	// requestInfo) and reaches this method, never AuthenticateAndComplete's
+	// picker-only prune, so a long-lived server driven only by these flows
+	// would otherwise grow s.sessions without bound.
 	now := time.Now()
 	s.pruneSessionsLocked(now)
 	if s.sessions[info.Sub] == nil {
@@ -640,7 +644,7 @@ func (s *Storage) Health(ctx context.Context) error { return nil }
 
 // requestInfo extracts the token claims from the concrete op.TokenRequest
 // types hamnir produces (auth-code flow and refresh flow) and op's token
-// exchange requests.
+// exchange and device authorization requests.
 func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 	switch r := req.(type) {
 	case *authRequest:
@@ -651,6 +655,11 @@ func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 		// A token exchange is a fresh programmatic login: mint a new session
 		// id so its refresh tokens are revocable like any other session's.
 		return TokenClaims{Sub: r.GetSubject(), ClientID: r.GetClientID(), SID: randID(), Scopes: r.GetScopes()}, nil
+	case *op.DeviceAuthorizationState:
+		// A device authorization is a fresh login outside the picker flow:
+		// mint a new session id so its refresh tokens are revocable like any
+		// other session's (same treatment as a token exchange).
+		return TokenClaims{Sub: r.Subject, ClientID: r.ClientID, SID: randID(), Scopes: r.Scopes}, nil
 	default:
 		// No other flow should reach token creation (unsupported grants are
 		// cut off earlier); minting from an unknown type would silently issue

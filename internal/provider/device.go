@@ -58,8 +58,12 @@ func (s *Storage) StoreDeviceAuthorization(ctx context.Context, clientID, device
 		return op.ErrDuplicateUserCode
 	}
 	s.deviceRequests[deviceCode] = &deviceRequest{
-		clientID:  clientID,
-		scopes:    scopes,
+		clientID: clientID,
+		// hamnir issues refresh tokens by default (see withOfflineAccess and
+		// CreateAuthRequest); op's needsRefreshToken gates a device grant's
+		// refresh token on offline_access being present in these scopes, so
+		// default it in here too, the same as the auth-code flow.
+		scopes:    withOfflineAccess(scopes),
 		audiences: s.audienceFor(clientID),
 		expires:   expires,
 	}
@@ -103,9 +107,8 @@ func (s *Storage) LookupDeviceUserCode(userCode string) error {
 	return err
 }
 
-// ApproveDevice records the chosen persona on the device authorization and
-// registers a session, mirroring AuthenticateAndComplete so device tokens
-// share refresh and logout semantics with picker logins.
+// ApproveDevice records the chosen persona on the device authorization. No
+// session is registered here — see the comment below.
 func (s *Storage) ApproveDevice(userCode, sub string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -114,18 +117,13 @@ func (s *Storage) ApproveDevice(userCode, sub string) error {
 		return err
 	}
 	now := time.Now()
-	sid := randID()
 	req.subject = sub
 	req.authTime = now
 	req.done = true
 
-	// Same session bookkeeping as AuthenticateAndComplete, so device tokens
-	// are revoked by logout and pruned by the refresh TTL like any login.
-	s.pruneSessionsLocked(now)
-	if s.sessions[sub] == nil {
-		s.sessions[sub] = make(map[string]session)
-	}
-	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: now}
+	// No session is registered here: op.DeviceAuthorizationState cannot carry
+	// a sid, so requestInfo mints one at token issuance and touchSession
+	// registers it there — the same lifecycle as a token exchange.
 	return nil
 }
 

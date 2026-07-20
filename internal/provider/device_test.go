@@ -37,7 +37,7 @@ func TestStorage_DeviceAuthorization(t *testing.T) {
 		}
 	})
 
-	t.Run("approve completes the state and registers a session", func(t *testing.T) {
+	t.Run("approve completes the state", func(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStorage(t)

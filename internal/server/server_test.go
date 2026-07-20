@@ -155,7 +155,7 @@ func TestDiscoveryDocument(t *testing.T) {
 	})
 
 	t.Run("keeps the served grants", func(t *testing.T) {
-		for _, want := range []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"} {
+		for _, want := range []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange", "urn:ietf:params:oauth:grant-type:device_code"} {
 			if !slices.Contains(doc.GrantTypes, want) {
 				t.Errorf("grant_types_supported missing %q (got %q)", want, doc.GrantTypes)
 			}
