@@ -73,6 +73,16 @@ gomod:
 sboms:
   - artifacts: archive
 
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args: ["sign-blob", "--output-signature=${signature}", "--output-certificate=${certificate}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+docker_signs:
+  - cmd: cosign
+    args: ["sign", "${artifact}@${digest}", "--yes"]
+
 dockers_v2:
   - images:
       - ghcr.io/strangemattersystems/hamnir
