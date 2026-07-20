@@ -94,6 +94,12 @@ The knobs:
 - Your configured `audiences:` apply to exchanged tokens just like every other flow. Override per request with `-d audience=https://other.test` — the override applies to the tokens from that exchange; refreshed tokens re-derive their audience from config.
 - In permissive mode, `-u myapp:` just names the client your tokens are minted for (any id, no secret). With registered clients, use one of them: a client with a `secret` authenticates as usual (`-u id:secret`), and a public client simply identifies itself with an empty secret (`-u id:`).
 
+## Skip the picker
+
+Browser flows can be hands-free too: send the standard OIDC `login_hint` parameter on the authorization request and hamnir signs the matching persona straight in — no picker, no click. A hint matches a persona's `sub` exactly or its `email` ignoring case; anything else — including a hint matching two personas — just pre-fills the picker's search box. Send `prompt=select_account` (or `prompt=login`) to get the picker back.
+
+This makes browser end-to-end tests fully non-interactive: start your app's login with a hint — the [example webapp](examples/) forwards `/login?hint=alice@example.test` — and the whole redirect dance completes without touching the page.
+
 ## What you can configure
 
 Everything lives in one config file — `hamnir init` scaffolds it and `hamnir validate` checks it. The [example config](examples/hamnir.yaml) walks through each of these in comments:
