@@ -33,6 +33,7 @@ type Handler struct {
 	callbackURL string
 	tmpl        *template.Template
 	css         template.CSS // the stylesheet, inlined into every page
+	js          template.JS  // the picker script, inlined into every page
 }
 
 type cardVM struct {
@@ -54,6 +55,7 @@ type pageVM struct {
 	AuthRequestID string
 	Groups        []groupVM
 	CSS           template.CSS
+	JS            template.JS
 }
 
 // NewHandler builds a picker Handler. complete records the chosen persona on the
@@ -66,7 +68,12 @@ func NewHandler(set *persona.Set, cfg *config.Config, complete func(string, stri
 		panic("web: embedded static/style.css: " + err.Error())
 	}
 	css := template.CSS(raw) //nolint:gosec // G203: raw is our own embedded stylesheet, not user input.
-	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl, css: css}
+	rawJS, err := assets.ReadFile("static/search.js")
+	if err != nil {
+		panic("web: embedded static/search.js: " + err.Error())
+	}
+	js := template.JS(rawJS) //nolint:gosec // G203: rawJS is our own embedded script, not user input.
+	return &Handler{set: set, cfg: cfg, complete: complete, callbackURL: callbackURL, tmpl: tmpl, css: css, js: js}
 }
 
 // Routes registers the picker's handlers on mux: the GET login page and the
@@ -141,7 +148,7 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 		})
 	}
 
-	vm := pageVM{AuthRequestID: authRequestID, CSS: h.css}
+	vm := pageVM{AuthRequestID: authRequestID, CSS: h.css, JS: h.js}
 	for _, g := range h.cfg.Groups {
 		if len(cards[g.ID]) > 0 {
 			vm.Groups = append(vm.Groups, groupVM{

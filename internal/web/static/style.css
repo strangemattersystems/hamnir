@@ -78,6 +78,20 @@ body {
 /* Main */
 main { flex: 1; padding-block: 2.5rem; }
 
+/* Search */
+.search { margin-bottom: 2rem; }
+.search input {
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+.search input::placeholder { color: var(--muted); }
+.search input:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.no-match { margin: 0; font-size: 0.75rem; color: var(--muted); }
+
 /* Groups */
 .group { margin-bottom: 2rem; }
 .group-label {

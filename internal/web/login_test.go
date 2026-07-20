@@ -136,6 +136,24 @@ func TestHandler_getLogin(t *testing.T) {
 		}
 	})
 
+	t.Run("ships the search ui hidden with the script inlined", func(t *testing.T) {
+		t.Parallel()
+
+		out := getLoginPage(newTestHandler(func(_, _ string) error { return nil })).Body.String()
+		if !strings.Contains(out, `<div class="search" hidden>`) {
+			t.Error("expected the search box present but hidden by default")
+		}
+		if !strings.Contains(out, `<p class="no-match" hidden>`) {
+			t.Error("expected the no-match line present but hidden by default")
+		}
+		if strings.Contains(out, `<script src=`) {
+			t.Error("the script should be inlined, not served via src")
+		}
+		if !strings.Contains(out, "<script>") || !strings.Contains(out, "requestSubmit") {
+			t.Error("expected search.js inlined into a <script> block")
+		}
+	})
+
 	t.Run("render failure yields 500", func(t *testing.T) {
 		t.Parallel()
 
