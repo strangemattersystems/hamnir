@@ -66,6 +66,9 @@ changelog:
 release:
   prerelease: auto
 
+gomod:
+  proxy: true
+
 # Requires syft on PATH (installed in CI).
 sboms:
   - artifacts: archive
