@@ -157,12 +157,21 @@ func (s *Storage) pendingByUserCodeLocked(userCode string) (*deviceRequest, erro
 	return req, nil
 }
 
-// pruneDeviceRequestsLocked drops expired, undecided requests and their user
-// codes. Decided requests stay until expiry so the device's final poll can
-// still read its outcome.
+// deviceOutcomeGrace is how long a device request outlives its expiry before
+// pruning. op reads outcomes from the stored state — a decided (done/denied)
+// state is terminal regardless of expiry, and an undecided expired state maps
+// to expired_token — but a pruned request degrades to access_denied, which
+// would misreport an approval that landed near the deadline. The grace
+// comfortably exceeds op's 5s poll interval so the deciding poll always finds
+// the state.
+const deviceOutcomeGrace = time.Minute
+
+// pruneDeviceRequestsLocked drops device requests once they are expired AND
+// past the outcome grace, so a device's final poll can still read its result
+// (tokens, access_denied or expired_token) before the entry disappears.
 func (s *Storage) pruneDeviceRequestsLocked(now time.Time) {
 	for dc, req := range s.deviceRequests {
-		if now.After(req.expires) {
+		if now.After(req.expires.Add(deviceOutcomeGrace)) {
 			delete(s.deviceRequests, dc)
 		}
 	}
