@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"io"
@@ -9,11 +9,8 @@ import (
 	"testing"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
+	"github.com/strangemattersystems/hamnir/internal/server"
 )
-
-// testVersion is the version line newServer wires into New, so the /up endpoint
-// has a known string to echo.
-const testVersion = "hamnir 9.9.9-test (rev deadbeef, built 2026-01-01T00:00:00Z)"
 
 func TestNew(t *testing.T) {
 	t.Parallel()
@@ -75,7 +72,7 @@ func TestNew(t *testing.T) {
 
 		// A config with no signing key cannot build the token signer, so New
 		// must surface the error rather than return a half-built handler.
-		if _, err := New(&config.Config{Lifetimes: config.DefaultLifetimes}, testVersion); err == nil {
+		if _, err := server.New(&config.Config{Lifetimes: config.DefaultLifetimes}, testVersion); err == nil {
 			t.Fatal("New with a nil signing key should fail")
 		}
 	})
