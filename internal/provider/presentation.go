@@ -64,8 +64,10 @@ func answerFormParseError(w http.ResponseWriter) {
 // answerBasicAuthError mirrors op's invalid_client response for an
 // unparseable Basic authorization header. op's RequestError maps
 // invalid_client to 401 (pkg/op/error.go), not the 400 most oidc.Error
-// responses get, so this matches that status.
+// responses get, so this matches that status; RFC 6749 §5.2 requires a
+// WWW-Authenticate challenge on a 401.
 func answerBasicAuthError(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", "Basic")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"invalid basic auth header"}`))

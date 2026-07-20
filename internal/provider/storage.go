@@ -138,7 +138,20 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 
 	// Prune sids not seen within the refresh TTL: lastSeen is refreshed on
 	// every rotation, so expiry here means no live token can carry the sid.
-	now := req.authTime
+	s.pruneSessionsLocked(req.authTime)
+	if s.sessions[sub] == nil {
+		s.sessions[sub] = make(map[string]session)
+	}
+	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: req.authTime}
+	return nil
+}
+
+// pruneSessionsLocked evicts sids not seen within the refresh TTL and drops
+// any subject left with no sessions. Shared by every write site that inserts
+// into s.sessions (AuthenticateAndComplete's picker path and touchSession's
+// exchange path) so the map self-bounds regardless of which flow drives a
+// long-running server. Callers must hold s.mu.
+func (s *Storage) pruneSessionsLocked(now time.Time) {
 	for subject, sids := range s.sessions {
 		maps.DeleteFunc(sids, func(_ string, sess session) bool {
 			return now.Sub(sess.lastSeen) > s.refresh.ttl
@@ -147,11 +160,6 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 			delete(s.sessions, subject)
 		}
 	}
-	if s.sessions[sub] == nil {
-		s.sessions[sub] = make(map[string]session)
-	}
-	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: req.authTime}
-	return nil
 }
 
 func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
@@ -304,17 +312,23 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	return jti, rt, exp, nil
 }
 
-// touchSession upserts the session entry for a freshly rotated token. Upsert,
-// not update: the sid may have been pruned or lost to a restart, and rotation
-// proves the session is live, so re-registering it keeps logout able to
-// revoke it.
+// touchSession upserts the session entry for a freshly rotated or exchanged
+// token. Upsert, not update: the sid may have been pruned or lost to a
+// restart, and this call proves the session is live, so re-registering it
+// keeps logout able to revoke it.
 func (s *Storage) touchSession(info TokenClaims) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Every token exchange mints a fresh sid (see requestInfo) and reaches
+	// this method, never AuthenticateAndComplete's picker-only prune, so a
+	// long-lived server driven only by token exchange would otherwise grow
+	// s.sessions without bound.
+	now := time.Now()
+	s.pruneSessionsLocked(now)
 	if s.sessions[info.Sub] == nil {
 		s.sessions[info.Sub] = make(map[string]session)
 	}
-	s.sessions[info.Sub][info.SID] = session{clientID: info.ClientID, lastSeen: time.Now()}
+	s.sessions[info.Sub][info.SID] = session{clientID: info.ClientID, lastSeen: now}
 }
 
 func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration time.Time) {
@@ -534,6 +548,17 @@ func (s *Storage) SetUserinfoFromToken(ctx context.Context, userinfo *oidc.UserI
 }
 
 func (s *Storage) SetIntrospectionFromToken(ctx context.Context, introspection *oidc.IntrospectionResponse, tokenID, subject, clientID string) error {
+	// Introspection requires client authentication (RFC 7662 §2.1). The
+	// exchange grant admits public clients by identification alone (see
+	// AuthorizeClientIDSecret), but op funnels introspection through that same
+	// method before calling here, so that loosening must not extend to
+	// introspection: when clients are registered, require the caller be a
+	// confidential one. Permissive mode (no clients) is unchanged.
+	if len(s.cfg.Clients) > 0 {
+		if c, ok := s.clientConfig(clientID); !ok || c.Secret == "" {
+			return errors.New("introspection requires a confidential client")
+		}
+	}
 	s.mu.Lock()
 	info, ok := s.accessTokens[tokenID]
 	s.mu.Unlock()

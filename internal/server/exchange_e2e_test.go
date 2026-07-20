@@ -411,8 +411,12 @@ func TestTokenExchange(t *testing.T) {
 		if status, body := postExchange(t, e, "tests", "s3cret", exchangeForm("alice-ci", nil)); status != http.StatusOK {
 			t.Fatalf("confidential client: status = %d, want 200 (body %v)", status, body)
 		}
-		if status, _ := postExchange(t, e, "tests", "wrong", exchangeForm("alice-ci", nil)); status == http.StatusOK {
-			t.Fatal("wrong secret must be rejected")
+		// op maps every client-auth failure to invalid_client / 401
+		// (pkg/op/error.go); pin the exact status and body, not just != 200,
+		// so a regression that returns e.g. a bare 400 invalid_request would
+		// be caught.
+		if status, body := postExchange(t, e, "tests", "wrong", exchangeForm("alice-ci", nil)); status != http.StatusUnauthorized || body["error"] != "invalid_client" {
+			t.Fatalf("wrong secret: status = %d, error = %v, want 401 invalid_client (body %v)", status, body["error"], body)
 		}
 		// Public clients cannot authenticate at the token endpoint (PKCE has
 		// no exchange equivalent), so they identify instead: client id with
@@ -421,11 +425,11 @@ func TestTokenExchange(t *testing.T) {
 		if status, body := postExchange(t, e, "spa", "", exchangeForm("alice-ci", nil)); status != http.StatusOK {
 			t.Fatalf("public client: status = %d, want 200 (body %v)", status, body)
 		}
-		if status, _ := postExchange(t, e, "spa", "surprise", exchangeForm("alice-ci", nil)); status == http.StatusOK {
-			t.Fatal("public client presenting a secret must be rejected")
+		if status, body := postExchange(t, e, "spa", "surprise", exchangeForm("alice-ci", nil)); status != http.StatusUnauthorized || body["error"] != "invalid_client" {
+			t.Fatalf("public client with a secret: status = %d, error = %v, want 401 invalid_client (body %v)", status, body["error"], body)
 		}
-		if status, _ := postExchange(t, e, "", "", exchangeForm("alice-ci", nil)); status == http.StatusOK {
-			t.Fatal("exchange without client auth must be rejected in registered mode")
+		if status, body := postExchange(t, e, "", "", exchangeForm("alice-ci", nil)); status != http.StatusUnauthorized || body["error"] != "invalid_client" {
+			t.Fatalf("no client auth: status = %d, error = %v, want 401 invalid_client (body %v)", status, body["error"], body)
 		}
 	})
 
@@ -526,5 +530,242 @@ func TestTokenExchange(t *testing.T) {
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", resp.StatusCode)
 		}
+	})
+
+	// a malformed Basic header must carry a WWW-Authenticate challenge on its
+	// 401 (RFC 6749 §5.2), not just the status.
+	t.Run("malformed basic auth 401 carries WWW-Authenticate", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, tokenConfig())
+		form := exchangeForm("alice-ci", nil)
+		req, _ := http.NewRequest(http.MethodPost, e.rp.Endpoint().TokenURL, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("a%zz:")))
+		resp, err := e.client.Do(req)
+		if err != nil {
+			t.Fatalf("malformed basic auth: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if got := resp.Header.Get("WWW-Authenticate"); got != "Basic" {
+			t.Fatalf("WWW-Authenticate = %q, want %q", got, "Basic")
+		}
+	})
+
+	// op registers /oauth/token method-agnostically and dispatches on
+	// r.FormValue("grant_type"), which merges the query string — so a GET
+	// exchange must get the same hardening a POST gets (Fix A).
+	t.Run("non-POST exchange hardening", func(t *testing.T) {
+		t.Parallel()
+
+		// Before Fix A, a malformed Basic header on a GET exchange reached
+		// op's own error path, which is missing a `return` and panics on a
+		// nil request (see ParseTokenExchangeRequest/TokenExchange in
+		// pkg/op/token_exchange.go) — asserting a clean 401 here, not a
+		// connection error or 5xx, proves the panic is pre-answered on GET.
+		t.Run("malformed basic auth is pre-answered, not a panic", func(t *testing.T) {
+			t.Parallel()
+
+			e := discover(t, tokenConfig())
+			target := e.rp.Endpoint().TokenURL + "?" + exchangeForm("alice-ci", nil).Encode()
+			req, _ := http.NewRequest(http.MethodGet, target, nil)
+			req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("a%zz:")))
+			resp, err := e.client.Do(req)
+			if err != nil {
+				t.Fatalf("GET exchange with malformed basic auth: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401 (a connection error or 5xx would mean op's nil-deref panic was reached)", resp.StatusCode)
+			}
+		})
+
+		// Before Fix A, the audience-defaulting block was gated on
+		// r.Method == http.MethodPost, so this same request sent by GET
+		// silently skipped defaulting and minted a token with no aud.
+		t.Run("well-formed GET exchange still gets audience defaulted", func(t *testing.T) {
+			t.Parallel()
+
+			cfg := tokenConfig()
+			cfg.Audiences = []string{"https://api.example.test"}
+			e := discover(t, cfg)
+			form := exchangeForm("alice-ci", url.Values{"scope": {"openid email"}})
+			target := e.rp.Endpoint().TokenURL + "?" + form.Encode()
+			req, _ := http.NewRequest(http.MethodGet, target, nil)
+			req.SetBasicAuth("myapp", "")
+			resp, err := e.client.Do(req)
+			if err != nil {
+				t.Fatalf("GET exchange: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			var body map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body %v)", resp.StatusCode, body)
+			}
+			access, _ := body["access_token"].(string)
+			if aud, _ := jwtPayload(t, access)["aud"].([]any); !slices.Equal(anyToStrings(aud), []string{"https://api.example.test"}) {
+				t.Fatalf("GET exchange aud = %v, want the configured audience (GET must not skip defaulting)", aud)
+			}
+		})
+	})
+
+	// exchange-minted sessions must be revocable via logout, not just the
+	// revocation endpoint: touchSession registers them into the same
+	// sessions map AuthenticateAndComplete uses for the picker, so logout
+	// (which walks that map, not the refresh-token denylist directly) must
+	// reach a session that was never created through the picker.
+	t.Run("logout reaches a programmatic session", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, tokenConfig())
+		status, body := postExchange(t, e, "myapp", "", exchangeForm("alice-ci", url.Values{
+			"requested_token_type": {tokenTypeRefresh},
+			"scope":                {"openid email"},
+		}))
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body %v)", status, body)
+		}
+		rt, _ := body["refresh_token"].(string)
+		if rt == "" {
+			t.Fatalf("no refresh_token: %v", body)
+		}
+
+		// A second exchange for the same subject and client, this time
+		// requesting an id_token to use as end_session's id_token_hint (RFC
+		// 8693 §2.2.1: the issued token still rides in access_token).
+		status, idBody := postExchange(t, e, "myapp", "", exchangeForm("alice-ci", url.Values{
+			"requested_token_type": {tokenTypeID},
+			"scope":                {"openid email"},
+		}))
+		if status != http.StatusOK {
+			t.Fatalf("id token exchange: status = %d, want 200 (body %v)", status, idBody)
+		}
+		rawID, _ := idBody["access_token"].(string)
+
+		resp, err := e.client.Get(e.disc.EndSession + "?id_token_hint=" + url.QueryEscape(rawID))
+		if err != nil {
+			t.Fatalf("logout: %v", err)
+		}
+		_ = resp.Body.Close()
+
+		oauthCfg := e.app("myapp", "")
+		if _, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: rt}).Token(); err == nil {
+			t.Fatal("refresh token should be rejected after logout reaches the exchange-minted session")
+		}
+	})
+
+	// The exchange grant loosened AuthorizeClientIDSecret to admit public
+	// clients by identification (empty secret); since op funnels
+	// introspection through that same method (ClientIDFromRequest ->
+	// ClientBasicAuth -> storage.AuthorizeClientIDSecret), that loosening
+	// must not let a public client introspect tokens too (RFC 7662 §2.1
+	// requires client authentication — Fix Q1).
+	t.Run("introspection stays scoped to confidential clients", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := tokenConfig()
+		cfg.Clients = []config.Client{
+			{ID: "tests", Secret: "s3cret"},
+			{ID: "spa"},
+		}
+		e := discover(t, cfg)
+		if e.disc.Introspection == "" {
+			t.Fatal("introspection_endpoint not advertised in discovery")
+		}
+
+		status, body := postExchange(t, e, "tests", "s3cret", exchangeForm("alice-ci", nil))
+		if status != http.StatusOK {
+			t.Fatalf("mint token: status = %d, want 200 (body %v)", status, body)
+		}
+		access, _ := body["access_token"].(string)
+
+		introspect := func(t *testing.T, clientID, secret string) map[string]any {
+			t.Helper()
+			req, _ := http.NewRequest(http.MethodPost, e.disc.Introspection, strings.NewReader(url.Values{"token": {access}}.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.SetBasicAuth(clientID, secret)
+			resp, err := e.client.Do(req)
+			if err != nil {
+				t.Fatalf("introspect: %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			var out map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				t.Fatalf("decode introspection response: %v", err)
+			}
+			return out
+		}
+
+		if out := introspect(t, "tests", "s3cret"); out["active"] != true {
+			t.Fatalf("confidential client introspection = %v, want active", out)
+		}
+		if out := introspect(t, "spa", ""); out["active"] == true {
+			t.Fatalf("public client introspection = %v, want inactive (RFC 7662 §2.1 regression)", out)
+		}
+	})
+
+	// Standard OAuth client libraries send client_id (and client_secret) in
+	// the token request body — Basic auth is not universal (RFC 6749 §3.2.1,
+	// client_secret_post) — so the DefaultExchangeAudience middleware bridges
+	// either into a Basic header before op ever parses the request (Fix Q3).
+	t.Run("body client_id bridges into Basic auth", func(t *testing.T) {
+		t.Parallel()
+
+		registeredClients := func() *config.Config {
+			cfg := tokenConfig()
+			cfg.Clients = []config.Client{
+				{ID: "app", Secret: "s3cret"},
+				{ID: "spa"},
+			}
+			return cfg
+		}
+
+		t.Run("public client identifies via body client_id, no Authorization header", func(t *testing.T) {
+			t.Parallel()
+
+			e := discover(t, registeredClients())
+			status, body := postExchange(t, e, "", "", exchangeForm("alice-ci", url.Values{"client_id": {"spa"}}))
+			if status != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body %v) — proves the body client_id bridges into Basic auth", status, body)
+			}
+		})
+
+		t.Run("confidential client via body client_id and client_secret", func(t *testing.T) {
+			t.Parallel()
+
+			e := discover(t, registeredClients())
+			status, body := postExchange(t, e, "", "", exchangeForm("alice-ci", url.Values{"client_id": {"app"}, "client_secret": {"s3cret"}}))
+			if status != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body %v)", status, body)
+			}
+		})
+
+		t.Run("wrong body client_secret rejected", func(t *testing.T) {
+			t.Parallel()
+
+			e := discover(t, registeredClients())
+			status, body := postExchange(t, e, "", "", exchangeForm("alice-ci", url.Values{"client_id": {"app"}, "client_secret": {"wrong"}}))
+			if status == http.StatusOK {
+				t.Fatalf("wrong body client_secret must be rejected (body %v)", body)
+			}
+		})
+
+		// a secret with characters op round-trips through QueryUnescape ("+",
+		// "%") must survive the bridge intact, so the bridge URL-encodes each
+		// credential before base64.
+		t.Run("body client_secret with special characters", func(t *testing.T) {
+			t.Parallel()
+
+			cfg := tokenConfig()
+			cfg.Clients = []config.Client{{ID: "app", Secret: "s3+cr%et"}}
+			e := discover(t, cfg)
+			status, body := postExchange(t, e, "", "", exchangeForm("alice-ci", url.Values{"client_id": {"app"}, "client_secret": {"s3+cr%et"}}))
+			if status != http.StatusOK {
+				t.Fatalf("status = %d, want 200 (body %v) — a special-char secret must survive the bridge", status, body)
+			}
+		})
 	})
 }

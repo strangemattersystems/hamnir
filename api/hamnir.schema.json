@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json",
   "title": "hamnir config",
-  "description": "Configuration for hamnir, a persona-first OIDC dev provider. Note: cross-referential rules (persona.group must match a groups[].id, sub unique across personas, client ids unique, static mount keys not colliding after leading-slash normalisation) are enforced by hamnir at load time, not by this schema.",
+  "description": "Configuration for hamnir, a persona-first OIDC dev provider. Note: cross-referential rules (persona.group must match a groups[].id, sub unique across personas, client ids unique, persona tokens non-empty and unique across the config, static mount keys not colliding after leading-slash normalisation) are enforced by hamnir at load time, not by this schema.",
   "type": "object",
   "additionalProperties": false,
   "dependentRequired": { "browser_url": ["issuer"] },

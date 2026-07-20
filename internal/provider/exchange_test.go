@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
@@ -220,6 +221,50 @@ func TestStorage_CreateAccessToken_Exchange(t *testing.T) {
 	}
 }
 
+// TestStorage_CreateAccessAndRefreshTokens_ExchangeEviction pins that the
+// exchange path self-bounds the sessions map like every other flow: it mints
+// a fresh sid per call (never touching AuthenticateAndComplete's picker-only
+// prune), so touchSession must sweep stale sids itself or a long-lived server
+// driven only by token exchange would grow s.sessions without bound. Also
+// closes test-gap #1 (exchange session registration) by driving the real
+// storage method rather than asserting on touchSession directly: this would
+// fail if the `if _, ok := request.(op.TokenExchangeRequest); ok { s.touchSession(info) }`
+// branch in CreateAccessAndRefreshTokens were deleted, since no session would
+// ever be registered to prune or find.
+func TestStorage_CreateAccessAndRefreshTokens_ExchangeEviction(t *testing.T) {
+	t.Parallel()
+
+	st := newExchangeStorage(t)
+	ctx := context.Background()
+
+	// A stale exchange-minted session: registered, then aged past the prune
+	// horizon, exactly as a long-abandoned programmatic login would be.
+	staleReq := &fakeExchangeRequest{subject: "usr_alice", clientID: "ci", scopes: []string{"openid"}}
+	if _, _, _, err := st.CreateAccessAndRefreshTokens(ctx, staleReq, ""); err != nil {
+		t.Fatal(err)
+	}
+	st.mu.Lock()
+	for sid, sess := range st.sessions["usr_alice"] {
+		sess.lastSeen = time.Now().Add(-st.refresh.ttl - time.Minute)
+		st.sessions["usr_alice"][sid] = sess
+	}
+	st.mu.Unlock()
+
+	// A fresh exchange call — the sole prune must run here, since exchanges
+	// never reach AuthenticateAndComplete's picker-only sweep.
+	freshReq := &fakeExchangeRequest{subject: "usr_alice", clientID: "ci", scopes: []string{"openid"}}
+	if _, _, _, err := st.CreateAccessAndRefreshTokens(ctx, freshReq, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	st.mu.Lock()
+	n := len(st.sessions["usr_alice"])
+	st.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("sessions[usr_alice] has %d entries, want 1 (stale exchange sid must be pruned)", n)
+	}
+}
+
 func TestStorage_DefaultExchangeAudience(t *testing.T) {
 	t.Parallel()
 
@@ -269,9 +314,16 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 			wantAud: nil,
 		},
 		{
-			name:   "get requests untouched",
-			method: http.MethodGet,
-			form:   url.Values{"grant_type": {exchangeGrant}},
+			// op registers /oauth/token method-agnostically and reads
+			// grant_type from the merged form (query + body), so a GET
+			// exchange must default audience exactly like a POST — the
+			// hardening must not be gated on method (Fix A). Query, not body:
+			// GET requests are never form-decoded from the body.
+			name:    "grant_type via GET query is honoured (op is method-agnostic)",
+			method:  http.MethodGet,
+			form:    url.Values{"grant_type": {exchangeGrant}},
+			basicID: "app",
+			wantAud: []string{"https://api.example.test"},
 		},
 	}
 	for _, tt := range tests {
@@ -282,8 +334,13 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotAud = r.Form["audience"]
 			})
-			req := httptest.NewRequest(tt.method, "/oauth/token", strings.NewReader(tt.form.Encode()))
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			var req *http.Request
+			if tt.method == http.MethodGet {
+				req = httptest.NewRequest(tt.method, "/oauth/token?"+tt.form.Encode(), nil)
+			} else {
+				req = httptest.NewRequest(tt.method, "/oauth/token", strings.NewReader(tt.form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			}
 			if tt.basicID != "" {
 				req.SetBasicAuth(tt.basicID, "")
 			}
@@ -336,6 +393,9 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 		}
 		if !strings.Contains(rec.Body.String(), "invalid basic auth header") {
 			t.Fatalf("body = %q, want the basic-auth-failure response", rec.Body.String())
+		}
+		if got := rec.Header().Get("WWW-Authenticate"); got != "Basic" {
+			t.Fatalf("WWW-Authenticate = %q, want %q (RFC 6749 §5.2)", got, "Basic")
 		}
 	})
 }

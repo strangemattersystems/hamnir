@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -88,7 +89,10 @@ func (s *Storage) ValidateTokenExchangeRequest(ctx context.Context, request op.T
 	}
 	// op validates the type is a known RFC 8693 urn but not that it is
 	// issuable; its response builder mishandles the rest (e.g. ...:jwt), so
-	// reject them here.
+	// reject them here. The refresh type is honoured, but the response
+	// envelope is op's own: issued_token_type reports refresh_token while the
+	// refresh token itself rides in the response's refresh_token field, not
+	// access_token (see the README's programmatic-login section).
 	switch request.GetRequestedTokenType() {
 	case oidc.AccessTokenType, oidc.RefreshTokenType, oidc.IDTokenType:
 	default:
@@ -136,44 +140,71 @@ func (s *Storage) SetUserinfoFromTokenExchangeRequest(ctx context.Context, useri
 	return nil
 }
 
-// DefaultExchangeAudience defaults an omitted RFC 8693 audience parameter on
-// token exchange requests to the audiences configured for the requesting
-// client, so configured audiences: reach exchanged tokens exactly as they
-// reach code-flow and refresh tokens. op decodes an exchange's audience from
-// the form only — there is no storage hook for it, unlike the subject, scopes
-// and requested type — so the defaulting happens at the one seam hamnir owns,
-// before op parses the request. RFC 8693 leaves the omitted-parameter policy
-// to the server; an explicit audience always wins. Mutating the parsed form
-// works because ParseForm is idempotent and op decodes from the cached
-// r.Form — the same property that obliges any early parser to answer parse
-// failures itself (see answerFormParseError). An explicit audience applies
-// only to the tokens minted by that exchange: refresh rotation re-derives
-// audiences from config, hamnir's standing refresh policy.
+// DefaultExchangeAudience is hamnir's token-exchange hardening middleware. It
+// defaults an omitted RFC 8693 audience parameter to the audiences configured
+// for the requesting client, so configured audiences: reach exchanged tokens
+// exactly as they reach code-flow and refresh tokens (op decodes an
+// exchange's audience from the form only — there is no storage hook for it,
+// unlike the subject, scopes and requested type, so the defaulting happens at
+// the one seam hamnir owns, before op parses the request; RFC 8693 leaves the
+// omitted-parameter policy to the server, and an explicit audience always
+// wins). It also bridges a body client_id/client_secret into a Basic header
+// (op reads exchange client identity from Basic only) and pre-answers
+// malformed Basic credentials that would otherwise reach a panic in op (see
+// the inline comments below).
+//
+// op's token endpoint accepts any HTTP method and reads grant_type from the
+// merged form (query + body: net/http's FormValue), so exchange requests can
+// arrive by GET as well as POST — the hardening here must not be gated on
+// method, or a GET exchange (a) skips audience defaulting, minting a
+// different aud than the same request sent by POST, and (b) with a malformed
+// Basic header, reaches op's panic instead of being pre-answered. ParseForm on
+// a GET only parses the query string (there being no body to consume), which
+// is harmless. Mutating the parsed form works because ParseForm is idempotent
+// and op decodes from the cached r.Form — the same property that obliges any
+// early parser to answer parse failures itself (see answerFormParseError).
+// An explicit audience applies only to the tokens minted by that exchange:
+// refresh rotation re-derives audiences from config, hamnir's standing
+// refresh policy.
 func (s *Storage) DefaultExchangeAudience(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			// This middleware sits outermost, so it owns answering parse
-			// failures (see answerFormParseError) — in registered mode nothing
-			// else between here and op would.
-			if err := r.ParseForm(); err != nil {
-				answerFormParseError(w)
+		// This middleware sits outermost, so it owns answering parse failures
+		// (see answerFormParseError) — in registered mode nothing else between
+		// here and op would.
+		if err := r.ParseForm(); err != nil {
+			answerFormParseError(w)
+			return
+		}
+		if r.Form.Get("grant_type") == string(oidc.GrantTypeTokenExchange) {
+			// op resolves the exchange client from the Basic header only, but
+			// public clients identify with a body client_id (RFC 6749 §3.2.1)
+			// and confidential clients may use client_secret_post. Bridge
+			// either into a Basic header when the caller sent none, so
+			// standard client libraries work the same against hamnir as
+			// against a production IdP. A wrong or missing secret for a
+			// confidential client still fails op's own check.
+			if _, _, hasBasic := r.BasicAuth(); !hasBasic {
+				if id := r.Form.Get("client_id"); id != "" {
+					// URL-encode each credential: op QueryUnescapes them back out
+					// (ParseTokenExchangeRequest), so a raw "+" or "%" in a secret
+					// would otherwise be mangled before the comparison.
+					cred := url.QueryEscape(id) + ":" + url.QueryEscape(r.Form.Get("client_secret"))
+					r.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(cred)))
+				}
+			}
+			// op unescapes Basic-auth credentials the same way
+			// (ParseTokenExchangeRequest) — but its error path is missing a
+			// return and panics on a nil request, so malformed credentials are
+			// answered here before op can reach that path.
+			clientID, secret, _ := r.BasicAuth()
+			uID, errID := url.QueryUnescape(clientID)
+			if _, errSecret := url.QueryUnescape(secret); errID != nil || errSecret != nil {
+				answerBasicAuthError(w)
 				return
 			}
-			if r.Form.Get("grant_type") == string(oidc.GrantTypeTokenExchange) {
-				// op unescapes Basic-auth credentials the same way
-				// (ParseTokenExchangeRequest) — but its error path is missing a
-				// return and panics on a nil request, so malformed credentials
-				// are answered here before op can reach that path.
-				clientID, secret, _ := r.BasicAuth()
-				uID, errID := url.QueryUnescape(clientID)
-				if _, errSecret := url.QueryUnescape(secret); errID != nil || errSecret != nil {
-					answerBasicAuthError(w)
-					return
-				}
-				if r.Form.Get("audience") == "" {
-					for _, aud := range s.audienceFor(uID) {
-						r.Form.Add("audience", aud)
-					}
+			if r.Form.Get("audience") == "" {
+				for _, aud := range s.audienceFor(uID) {
+					r.Form.Add("audience", aud)
 				}
 			}
 		}

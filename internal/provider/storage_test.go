@@ -695,6 +695,52 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 			t.Fatal("an expired token must not introspect")
 		}
 	})
+
+	// The exchange grant loosened AuthorizeClientIDSecret to admit public
+	// clients by identification (empty secret); since op funnels introspection
+	// through the same AuthorizeClientIDSecret + SetIntrospectionFromToken
+	// path (ClientIDFromRequest -> ClientBasicAuth), that loosening must not
+	// let a public client introspect tokens too (RFC 7662 §2.1 requires client
+	// authentication). Permissive mode (no clients configured) is unchanged.
+	t.Run("registered mode requires a confidential caller", func(t *testing.T) {
+		t.Parallel()
+
+		st := newStorageWithClients(t,
+			config.Client{ID: "public"},
+			config.Client{ID: "confidential", Secret: "s3cret"},
+		)
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
+
+		tests := []struct {
+			name     string
+			clientID string
+			wantErr  bool
+		}{
+			{"confidential caller allowed", "confidential", false},
+			{"public caller rejected", "public", true},
+			{"unregistered caller rejected", "ghost", true},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var resp oidc.IntrospectionResponse
+				err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", tt.clientID)
+				if (err != nil) != tt.wantErr {
+					t.Fatalf("SetIntrospectionFromToken caller %q err = %v, wantErr %v", tt.clientID, err, tt.wantErr)
+				}
+			})
+		}
+	})
+
+	t.Run("permissive mode admits any caller", func(t *testing.T) {
+		t.Parallel()
+
+		st := newTestStorage(t) // no clients configured
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
+		var resp oidc.IntrospectionResponse
+		if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "anything"); err != nil {
+			t.Fatalf("permissive mode should admit any caller: %v", err)
+		}
+	})
 }
 
 // unexpectedTokenRequest is an op.TokenRequest type hamnir never produces.
