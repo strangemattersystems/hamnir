@@ -67,19 +67,21 @@ func TestSearchText(t *testing.T) {
 		name        string
 		pname       string
 		description string
+		email       string
 		sub         string
 		want        string
 	}{
-		{"lowercases and joins the fields", "Ada Lovelace", "First Programmer", "USR_Ada", "ada lovelace first programmer usr_ada"},
-		{"empty description leaves no gap", "Bob", "", "usr_bob", "bob usr_bob"},
-		{"all empty yields empty", "", "", "", ""},
+		{"lowercases and joins the fields", "Ada Lovelace", "First Programmer", "", "USR_Ada", "ada lovelace first programmer usr_ada"},
+		{"empty description leaves no gap", "Bob", "", "", "usr_bob", "bob usr_bob"},
+		{"all empty yields empty", "", "", "", "", ""},
+		{"email included and lowercased", "Ada", "", "Ada@Example.Test", "usr_ada", "ada ada@example.test usr_ada"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := searchText(tt.pname, tt.description, tt.sub); got != tt.want {
-				t.Errorf("searchText(%q, %q, %q) = %q, want %q", tt.pname, tt.description, tt.sub, got, tt.want)
+			if got := searchText(tt.pname, tt.description, tt.email, tt.sub); got != tt.want {
+				t.Errorf("searchText(%q, %q, %q, %q) = %q, want %q", tt.pname, tt.description, tt.email, tt.sub, got, tt.want)
 			}
 		})
 	}
@@ -153,7 +155,7 @@ func TestHandler_getLogin(t *testing.T) {
 		if !strings.Contains(out, `<div class="search" hidden>`) {
 			t.Error("expected the search box present but hidden by default")
 		}
-		if !strings.Contains(out, `<p class="no-match" hidden>`) {
+		if !strings.Contains(out, `<p class="no-match" role="status" hidden>`) {
 			t.Error("expected the no-match line present but hidden by default")
 		}
 		if strings.Contains(out, `<script src=`) {

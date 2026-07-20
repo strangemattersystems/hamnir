@@ -27,7 +27,7 @@
   input.addEventListener("input", filter);
 
   input.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
+    if (event.key !== "Enter" || event.isComposing) return;
     const visible = cards.filter((card) => !card.hidden);
     if (visible.length === 1) visible[0].requestSubmit();
   });

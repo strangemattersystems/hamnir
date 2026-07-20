@@ -156,6 +156,7 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 		}
 		sub, _ := p.Claims["sub"].(string)
 		picture, _ := p.Claims["picture"].(string)
+		email, _ := p.Claims["email"].(string)
 		name := persona.DisplayName(p)
 		cards[gid] = append(cards[gid], cardVM{
 			Sub:         sub,
@@ -163,7 +164,7 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 			Initial:     initial(name),
 			Description: p.Description,
 			Picture:     picture,
-			Search:      searchText(name, p.Description, sub),
+			Search:      searchText(name, p.Description, email, sub),
 		})
 	}
 
@@ -193,9 +194,9 @@ func initial(name string) string {
 }
 
 // searchText builds the haystack the picker's search box matches against:
-// the persona's name, description and sub, lowercased and space-joined.
-func searchText(name, description, sub string) string {
-	return strings.ToLower(strings.Join(strings.Fields(name+" "+description+" "+sub), " "))
+// the persona's name, description, email and sub, lowercased and space-joined.
+func searchText(name, description, email, sub string) string {
+	return strings.ToLower(strings.Join(strings.Fields(name+" "+description+" "+email+" "+sub), " "))
 }
 
 // hintedSub resolves a login_hint to a persona: a persona is a candidate when
