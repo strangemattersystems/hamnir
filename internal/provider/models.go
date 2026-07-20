@@ -31,6 +31,8 @@ type authRequest struct {
 	responseMode  oidc.ResponseMode
 	codeChallenge *oidc.CodeChallenge
 	audiences     []string // resolved aud values; nil -> default [clientID]
+	loginHint     string
+	prompt        oidc.SpaceDelimitedArray
 	createdAt     time.Time
 	code          string // authorization code, once issued (reverse index into Storage.codes)
 

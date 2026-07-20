@@ -970,3 +970,50 @@ func TestStorage_AudienceFor(t *testing.T) {
 		}
 	})
 }
+
+func TestStorage_LoginHint(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tests := []struct {
+		name     string
+		authReq  *oidc.AuthRequest
+		complete bool
+		wantHint string
+		wantAuto bool
+	}{
+		{"hint carried and auto allowed", &oidc.AuthRequest{ClientID: "c", LoginHint: "alice@example.test"}, false, "alice@example.test", true},
+		{"select_account forces the picker", &oidc.AuthRequest{ClientID: "c", LoginHint: "a", Prompt: oidc.SpaceDelimitedArray{oidc.PromptSelectAccount}}, false, "a", false},
+		{"login forces the picker", &oidc.AuthRequest{ClientID: "c", LoginHint: "a", Prompt: oidc.SpaceDelimitedArray{oidc.PromptLogin}}, false, "a", false},
+		{"no hint", &oidc.AuthRequest{ClientID: "c"}, false, "", false},
+		{"completed request keeps hint but not auto", &oidc.AuthRequest{ClientID: "c", LoginHint: "a"}, true, "a", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			st := newTestStorage(t)
+			req, err := st.CreateAuthRequest(ctx, tt.authReq, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.complete {
+				if err := st.AuthenticateAndComplete(req.GetID(), "usr_alice"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			hint, auto := st.LoginHint(req.GetID())
+			if hint != tt.wantHint || auto != tt.wantAuto {
+				t.Errorf("LoginHint() = (%q, %v), want (%q, %v)", hint, auto, tt.wantHint, tt.wantAuto)
+			}
+		})
+	}
+
+	t.Run("unknown id", func(t *testing.T) {
+		t.Parallel()
+
+		if hint, auto := newTestStorage(t).LoginHint("nope"); hint != "" || auto {
+			t.Errorf("LoginHint(unknown) = (%q, %v), want (\"\", false)", hint, auto)
+		}
+	})
+}

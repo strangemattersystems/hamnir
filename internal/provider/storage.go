@@ -178,6 +178,8 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 		responseMode:  authReq.ResponseMode,
 		codeChallenge: codeChallenge(authReq),
 		audiences:     s.audienceFor(authReq.ClientID),
+		loginHint:     authReq.LoginHint,
+		prompt:        authReq.Prompt,
 		createdAt:     time.Now(),
 		subject:       userID,
 	}
@@ -217,6 +219,24 @@ func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthReques
 		return nil, fmt.Errorf("auth request %q: %w", id, ErrAuthRequestNotFound)
 	}
 	return snapshot(req), nil
+}
+
+// LoginHint returns the login_hint carried by an auth request and whether
+// hamnir may auto-select the hinted persona. Auto-login is off once the
+// request is done and when the RP's prompt asks for interaction
+// (select_account or login) — those still return the hint so the picker
+// can prefill its search box. Unknown or hint-less requests return "", false.
+func (s *Storage) LoginHint(authRequestID string) (hint string, allowAuto bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	req, ok := s.authRequests[authRequestID]
+	if !ok || req.loginHint == "" {
+		return "", false
+	}
+	allowAuto = !req.done &&
+		!slices.Contains(req.prompt, oidc.PromptSelectAccount) &&
+		!slices.Contains(req.prompt, oidc.PromptLogin)
+	return req.loginHint, allowAuto
 }
 
 func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRequest, error) {
