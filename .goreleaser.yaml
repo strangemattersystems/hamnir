@@ -86,8 +86,11 @@ dockers_v2:
       - "{{ if not .Prerelease }}latest{{ end }}"
     labels:
       org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: "OpenID Connect provider for local development: sign in as personas you define, in a single click"
       org.opencontainers.image.source: "https://github.com/strangemattersystems/hamnir"
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
       org.opencontainers.image.licenses: MIT
+    annotations:
+      org.opencontainers.image.description: "OpenID Connect provider for local development: sign in as personas you define, in a single click"
