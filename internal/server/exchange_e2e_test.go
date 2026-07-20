@@ -129,7 +129,7 @@ func TestTokenExchange(t *testing.T) {
 	// code-flow tokens: op offers no exchange-side audience hook, so hamnir
 	// defaults the omitted RFC 8693 audience parameter from config before op
 	// parses the request. Refresh rotation re-derives the same values, so the
-	// audience no longer flips mid-session.
+	// audience no longer flips mid-session for the defaulted case.
 	t.Run("configured audiences apply to exchanged tokens", func(t *testing.T) {
 		t.Parallel()
 
@@ -167,8 +167,9 @@ func TestTokenExchange(t *testing.T) {
 		cfg.Audiences = []string{"https://api.example.test"}
 		e := discover(t, cfg)
 		status, body := postExchange(t, e, "myapp", "", exchangeForm("alice-ci", url.Values{
-			"audience": {"https://other.test"},
-			"scope":    {"openid email"},
+			"audience":             {"https://other.test"},
+			"scope":                {"openid email"},
+			"requested_token_type": {tokenTypeRefresh},
 		}))
 		if status != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body %v)", status, body)
@@ -176,6 +177,19 @@ func TestTokenExchange(t *testing.T) {
 		access, _ := body["access_token"].(string)
 		if aud, _ := jwtPayload(t, access)["aud"].([]any); !slices.Equal(anyToStrings(aud), []string{"https://other.test"}) {
 			t.Fatalf("aud = %v, want the explicit audience", aud)
+		}
+
+		// refresh rotation re-derives audiences from config (refresh JWTs
+		// deliberately carry none), so the explicit audience is scoped to the
+		// exchange that named it — pinned here as deliberate policy.
+		rt, _ := body["refresh_token"].(string)
+		oauthCfg := e.app("myapp", "")
+		refreshed, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: rt}).Token()
+		if err != nil {
+			t.Fatalf("refresh grant: %v", err)
+		}
+		if aud, _ := jwtPayload(t, refreshed.AccessToken)["aud"].([]any); !slices.Equal(anyToStrings(aud), []string{"https://api.example.test"}) {
+			t.Fatalf("refreshed aud = %v, want configured audience (explicit audience does not survive refresh)", aud)
 		}
 	})
 
@@ -206,6 +220,14 @@ func TestTokenExchange(t *testing.T) {
 		}
 		if !strings.Contains(got, "alice@example.test") {
 			t.Fatalf("userinfo = %q, want alice's email released", got)
+		}
+
+		claims := jwtPayload(t, access)
+		if _, ok := claims["email"]; ok {
+			t.Fatal("access token must not embed userinfo-scope claims (code-flow parity)")
+		}
+		if _, ok := claims["roles"]; !ok {
+			t.Fatalf("access token lost custom claims: %v", claims)
 		}
 	})
 
@@ -298,6 +320,42 @@ func TestTokenExchange(t *testing.T) {
 		}
 	})
 
+	// programmatic sessions must be revocable like picker sessions.
+	t.Run("revocation endpoint invalidates an exchanged refresh token", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, tokenConfig())
+		status, body := postExchange(t, e, "myapp", "", exchangeForm("alice-ci", url.Values{
+			"requested_token_type": {tokenTypeRefresh},
+			"scope":                {"openid email"},
+		}))
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body %v)", status, body)
+		}
+		rt, _ := body["refresh_token"].(string)
+		if rt == "" {
+			t.Fatalf("no refresh_token: %v", body)
+		}
+
+		resp, err := e.client.PostForm(e.disc.Revocation, url.Values{
+			"token":           {rt},
+			"token_type_hint": {"refresh_token"},
+			"client_id":       {"myapp"},
+		})
+		if err != nil {
+			t.Fatalf("revoke: %v", err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("revoke status = %d, want 200", resp.StatusCode)
+		}
+
+		oauthCfg := e.app("myapp", "")
+		if _, err := oauthCfg.TokenSource(e.ctx, &oauth2.Token{RefreshToken: rt}).Token(); err == nil {
+			t.Fatal("refresh token should be rejected after revocation")
+		}
+	})
+
 	// unknown subject tokens must fail closed as invalid_request, never mint
 	// a session.
 	t.Run("unknown token rejected", func(t *testing.T) {
@@ -366,6 +424,31 @@ func TestTokenExchange(t *testing.T) {
 		if status, _ := postExchange(t, e, "spa", "surprise", exchangeForm("alice-ci", nil)); status == http.StatusOK {
 			t.Fatal("public client presenting a secret must be rejected")
 		}
+		if status, _ := postExchange(t, e, "", "", exchangeForm("alice-ci", nil)); status == http.StatusOK {
+			t.Fatal("exchange without client auth must be rejected in registered mode")
+		}
+	})
+
+	// audience resolution goes through the same per-client-override-beats-global
+	// logic the code flow uses (see Storage.audienceFor); an exchange must see
+	// it too since DefaultExchangeAudience calls that same method.
+	t.Run("per-client audiences reach exchanged tokens", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := tokenConfig()
+		cfg.Audiences = []string{"https://api.example.test"}
+		cfg.Clients = []config.Client{
+			{ID: "tests", Secret: "s3cret", Audiences: []string{"https://client.example.test"}},
+		}
+		e := discover(t, cfg)
+		status, body := postExchange(t, e, "tests", "s3cret", exchangeForm("alice-ci", nil))
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body %v)", status, body)
+		}
+		access, _ := body["access_token"].(string)
+		if aud, _ := jwtPayload(t, access)["aud"].([]any); !slices.Equal(anyToStrings(aud), []string{"https://client.example.test"}) {
+			t.Fatalf("aud = %v, want the client's own audience", aud)
+		}
 	})
 
 	// an op-minted access token also works as a subject token: op resolves its
@@ -409,17 +492,39 @@ func TestTokenExchange(t *testing.T) {
 		registered := tokenConfig()
 		registered.Clients = []config.Client{{ID: "app", Secret: "s3cret"}}
 		for name, cfg := range map[string]*config.Config{"permissive": tokenConfig(), "registered": registered} {
-			e := discover(t, cfg)
-			req, _ := http.NewRequest(http.MethodPost, e.rp.Endpoint().TokenURL, strings.NewReader("a=%zz"))
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			resp, err := e.client.Do(req)
-			if err != nil {
-				t.Fatalf("%s: %v", name, err)
-			}
-			body := readBody(t, resp)
-			if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "error parsing form") {
-				t.Fatalf("%s: status = %d body = %q, want 400 with parse-failure error", name, resp.StatusCode, body)
-			}
+			t.Run(name, func(t *testing.T) {
+				e := discover(t, cfg)
+				req, _ := http.NewRequest(http.MethodPost, e.rp.Endpoint().TokenURL, strings.NewReader("a=%zz"))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				resp, err := e.client.Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				body := readBody(t, resp)
+				if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "error parsing form") {
+					t.Fatalf("status = %d body = %q, want 400 with parse-failure error", resp.StatusCode, body)
+				}
+			})
+		}
+	})
+
+	// a malformed Basic header on an exchange must fail closed: op's own
+	// parse-error path panics on it upstream, so the middleware answers first.
+	t.Run("malformed basic auth rejected", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, tokenConfig())
+		form := exchangeForm("alice-ci", nil)
+		req, _ := http.NewRequest(http.MethodPost, e.rp.Endpoint().TokenURL, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("a%zz:")))
+		resp, err := e.client.Do(req)
+		if err != nil {
+			t.Fatalf("malformed basic auth: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", resp.StatusCode)
 		}
 	})
 }

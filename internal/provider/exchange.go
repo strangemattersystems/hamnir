@@ -42,7 +42,9 @@ func init() {
 
 var (
 	errUnknownExchangeToken = errors.New("unknown subject token")
-	errExchangeTokenType    = errors.New("static persona tokens must be presented as " + string(PersonaTokenType))
+	// op reports verifier failures to clients as a generic "subject_token is
+	// invalid"; this message is for hamnir-side reading only.
+	errExchangeTokenType = errors.New("static persona tokens must be presented as " + string(PersonaTokenType))
 )
 
 // defaultExchangeScopes is the scope set applied when an exchange request
@@ -107,7 +109,24 @@ func (s *Storage) CreateTokenExchangeRequest(ctx context.Context, request op.Tok
 // GetPrivateClaimsFromTokenExchangeRequest releases the persona's claims into
 // an exchanged access token, gated by scope exactly like the code flow.
 func (s *Storage) GetPrivateClaimsFromTokenExchangeRequest(ctx context.Context, request op.TokenExchangeRequest) (map[string]any, error) {
-	return s.GetPrivateClaimsFromScopes(ctx, request.GetSubject(), request.GetClientID(), request.GetScopes())
+	return s.GetPrivateClaimsFromScopes(ctx, request.GetSubject(), request.GetClientID(), withoutUserinfoScopes(request.GetScopes()))
+}
+
+// withoutUserinfoScopes drops the scopes whose claims belong in userinfo and
+// the id_token rather than the access token, mirroring the unexported filter
+// op applies before requesting private access-token claims on the code flow
+// (op/token.go removeUserinfoScopes). Without it, access-token claims would
+// differ between picker logins and exchanges for the same persona and scopes.
+func withoutUserinfoScopes(scopes []string) []string {
+	out := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		switch s {
+		case oidc.ScopeProfile, oidc.ScopeEmail, oidc.ScopeAddress, oidc.ScopePhone:
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // SetUserinfoFromTokenExchangeRequest populates an exchanged id_token's claims,
@@ -127,7 +146,9 @@ func (s *Storage) SetUserinfoFromTokenExchangeRequest(ctx context.Context, useri
 // to the server; an explicit audience always wins. Mutating the parsed form
 // works because ParseForm is idempotent and op decodes from the cached
 // r.Form — the same property that obliges any early parser to answer parse
-// failures itself (see answerFormParseError).
+// failures itself (see answerFormParseError). An explicit audience applies
+// only to the tokens minted by that exchange: refresh rotation re-derives
+// audiences from config, hamnir's standing refresh policy.
 func (s *Storage) DefaultExchangeAudience(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
@@ -138,15 +159,21 @@ func (s *Storage) DefaultExchangeAudience(next http.Handler) http.Handler {
 				answerFormParseError(w)
 				return
 			}
-			if r.Form.Get("grant_type") == string(oidc.GrantTypeTokenExchange) &&
-				r.Form.Get("audience") == "" {
-				// op unescapes Basic-auth credentials the same way (ParseTokenExchangeRequest).
-				clientID, _, _ := r.BasicAuth()
-				if unescaped, err := url.QueryUnescape(clientID); err == nil {
-					clientID = unescaped
+			if r.Form.Get("grant_type") == string(oidc.GrantTypeTokenExchange) {
+				// op unescapes Basic-auth credentials the same way
+				// (ParseTokenExchangeRequest) — but its error path is missing a
+				// return and panics on a nil request, so malformed credentials
+				// are answered here before op can reach that path.
+				clientID, secret, _ := r.BasicAuth()
+				uID, errID := url.QueryUnescape(clientID)
+				if _, errSecret := url.QueryUnescape(secret); errID != nil || errSecret != nil {
+					answerBasicAuthError(w)
+					return
 				}
-				for _, aud := range s.audienceFor(clientID) {
-					r.Form.Add("audience", aud)
+				if r.Form.Get("audience") == "" {
+					for _, aud := range s.audienceFor(uID) {
+						r.Form.Add("audience", aud)
+					}
 				}
 			}
 		}

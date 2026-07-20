@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -222,6 +223,22 @@ func TestStorage_CreateAccessToken_Exchange(t *testing.T) {
 func TestStorage_DefaultExchangeAudience(t *testing.T) {
 	t.Parallel()
 
+	// Built once: the middleware only reads Storage, so sharing it across the
+	// parallel subtests below is safe (matches TestStorage_VerifyExchangeSubjectToken).
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Audiences: []string{"https://api.example.test"},
+		Personas:  []config.Persona{{Claims: map[string]any{"sub": "usr_alice"}}},
+		Lifetimes: config.DefaultLifetimes,
+	}
+	st, err := NewStorage(cfg, persona.NewSet(cfg), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	exchangeGrant := string(oidc.GrantTypeTokenExchange)
 	tests := []struct {
 		name    string
@@ -261,20 +278,6 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			key, err := rsa.GenerateKey(rand.Reader, 2048)
-			if err != nil {
-				t.Fatal(err)
-			}
-			cfg := &config.Config{
-				Audiences: []string{"https://api.example.test"},
-				Personas:  []config.Persona{{Claims: map[string]any{"sub": "usr_alice"}}},
-				Lifetimes: config.DefaultLifetimes,
-			}
-			st, err := NewStorage(cfg, persona.NewSet(cfg), key)
-			if err != nil {
-				t.Fatal(err)
-			}
-
 			var gotAud []string
 			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotAud = r.Form["audience"]
@@ -294,7 +297,6 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 	t.Run("malformed form answered with 400", func(t *testing.T) {
 		t.Parallel()
 
-		st := newExchangeStorage(t)
 		nextCalled := false
 		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { nextCalled = true })
 		req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader("a=%zz"))
@@ -311,4 +313,81 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 			t.Fatalf("body = %q, want the parse-failure response", rec.Body.String())
 		}
 	})
+
+	// op's own Basic-auth unescape error path (ParseTokenExchangeRequest)
+	// panics on a nil request downstream, so this middleware must answer the
+	// request before op ever sees it.
+	t.Run("malformed basic auth answered with 401", func(t *testing.T) {
+		t.Parallel()
+
+		nextCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { nextCalled = true })
+		form := url.Values{"grant_type": {exchangeGrant}}
+		req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("a%zz:")))
+		rec := httptest.NewRecorder()
+		st.DefaultExchangeAudience(next).ServeHTTP(rec, req)
+		if nextCalled {
+			t.Fatal("next handler must not run on a malformed basic auth header")
+		}
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "invalid basic auth header") {
+			t.Fatalf("body = %q, want the basic-auth-failure response", rec.Body.String())
+		}
+	})
+}
+
+// TestStorage_GetPrivateClaimsFromTokenExchangeRequest pins code-flow parity:
+// exchanged access tokens must not embed claims released only through
+// userinfo scopes (see withoutUserinfoScopes), while custom claims released
+// through other scopes still ride along.
+func TestStorage_GetPrivateClaimsFromTokenExchangeRequest(t *testing.T) {
+	t.Parallel()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Personas: []config.Persona{{
+			Claims: map[string]any{
+				"sub":   "usr_alice",
+				"email": "alice@example.test",
+				"roles": []any{"coach"},
+			},
+		}},
+		Lifetimes: config.DefaultLifetimes,
+	}
+	st, err := NewStorage(cfg, persona.NewSet(cfg), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name      string
+		scopes    []string
+		wantEmail bool
+	}{
+		{name: "email scope requested", scopes: []string{"openid", "email"}, wantEmail: false},
+		{name: "no userinfo scope requested", scopes: []string{"openid"}, wantEmail: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &fakeExchangeRequest{subject: "usr_alice", scopes: tt.scopes}
+			claims, err := st.GetPrivateClaimsFromTokenExchangeRequest(context.Background(), req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := claims["email"]; ok != tt.wantEmail {
+				t.Fatalf("email present = %v, want %v", ok, tt.wantEmail)
+			}
+			if _, ok := claims["roles"]; !ok {
+				t.Fatalf("custom claim 'roles' dropped: %v", claims)
+			}
+		})
+	}
 }
