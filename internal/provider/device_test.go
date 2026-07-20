@@ -130,8 +130,8 @@ func TestStorage_DeviceAuthorization(t *testing.T) {
 
 		st := newTestStorage(t)
 		dc, _ := storeDevice(t, st, "mine")
-		if _, err := st.GetDeviceAuthorizatonState(ctx, "other", dc); err == nil {
-			t.Fatal("expected an error for a client mismatch")
+		if _, err := st.GetDeviceAuthorizatonState(ctx, "other", dc); !errors.Is(err, ErrDeviceCodeNotFound) {
+			t.Fatalf("err = %v, want ErrDeviceCodeNotFound for a client mismatch", err)
 		}
 	})
 

@@ -309,6 +309,19 @@ func TestHandler_getLogin(t *testing.T) {
 			t.Errorf("picker form target regressed:\n%s", out)
 		}
 	})
+
+	t.Run("renders the classes the search script selects", func(t *testing.T) {
+		t.Parallel()
+
+		// search.js queries these selectors; its behaviour is deliberately
+		// untested, so the rendered contract it relies on is pinned here.
+		out := getLoginPage(newTestHandler(func(_, _ string) error { return nil })).Body.String()
+		for _, marker := range []string{`class="search"`, `class="grid"`, `class="group"`, `class="no-match"`} {
+			if !strings.Contains(out, marker) {
+				t.Errorf("picker markup missing %s, which search.js selects on", marker)
+			}
+		}
+	})
 }
 
 func TestHandler_hintedSub(t *testing.T) {
@@ -567,6 +580,20 @@ func TestHandler_device(t *testing.T) {
 		rec := serve(h, http.MethodPost, "/device/select", url.Values{"userCode": {"BCDF-GHJK"}, "sub": {"usr_alice"}})
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "expired") {
 			t.Errorf("expected the expired message, got %d:\n%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("user code is escaped in the picker form", func(t *testing.T) {
+		t.Parallel()
+
+		code := `"><script>alert(1)</script>`
+		h := newDeviceHandler(newFakeGate(code), alice)
+		out := serve(h, http.MethodGet, "/device?user_code="+url.QueryEscape(code), nil).Body.String()
+		if strings.Contains(out, `<script>alert`) {
+			t.Fatalf("user code must be escaped, got:\n%s", out)
+		}
+		if !strings.Contains(out, `value="&#34;&gt;&lt;script&gt;`) {
+			t.Errorf("expected the escaped hidden value, got:\n%s", out)
 		}
 	})
 }
