@@ -145,6 +145,30 @@ func TestAuthCodeFlow(t *testing.T) {
 			t.Fatal("must not redirect to an unregistered redirect_uri (open redirect)")
 		}
 	})
+
+	t.Run("implicit response type rejected", func(t *testing.T) {
+		t.Parallel()
+
+		e := discover(t, aliceConfig())
+		authURL := e.srv.URL + "/authorize?client_id=isen" +
+			"&redirect_uri=" + url.QueryEscape("http://app.test/callback") +
+			"&response_type=id_token&scope=openid&nonce=n123"
+		resp, err := e.client.Get(authURL)
+		if err != nil {
+			t.Fatalf("authorize: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		// hamnir never issues anything for an implicit request: op rejects it
+		// against the client's registered response types and delivers the
+		// error in the fragment (the implicit flow's response mode).
+		if resp.StatusCode != http.StatusFound {
+			t.Fatalf("expected an error redirect, got status %d", resp.StatusCode)
+		}
+		loc := resp.Header.Get("Location")
+		if !strings.Contains(loc, "#error=unauthorized_client") || strings.Contains(loc, "code=") {
+			t.Fatalf("expected a fragment error without a code, got %q", loc)
+		}
+	})
 }
 
 func TestLogoutAndRevocation(t *testing.T) {

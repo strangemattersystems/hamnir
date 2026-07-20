@@ -1,10 +1,12 @@
 package server_test
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -116,6 +118,47 @@ func TestNew(t *testing.T) {
 					t.Errorf("content-type = %q, want image/svg+xml", resp.Header.Get("Content-Type"))
 				}
 			})
+		}
+	})
+}
+
+func TestDiscoveryDocument(t *testing.T) {
+	t.Parallel()
+
+	srv, client := newServer(t, aliceConfig())
+	resp, err := client.Get(srv.URL + "/.well-known/openid-configuration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("discovery status %d", resp.StatusCode)
+	}
+	var doc struct {
+		ResponseTypes []string `json:"response_types_supported"`
+		GrantTypes    []string `json:"grant_types_supported"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("advertises only the code response type", func(t *testing.T) {
+		if !slices.Equal(doc.ResponseTypes, []string{"code"}) {
+			t.Errorf("response_types_supported = %q, want [code]", doc.ResponseTypes)
+		}
+	})
+
+	t.Run("does not advertise the implicit grant", func(t *testing.T) {
+		if slices.Contains(doc.GrantTypes, "implicit") {
+			t.Errorf("grant_types_supported advertises implicit: %q", doc.GrantTypes)
+		}
+	})
+
+	t.Run("keeps the served grants", func(t *testing.T) {
+		for _, want := range []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"} {
+			if !slices.Contains(doc.GrantTypes, want) {
+				t.Errorf("grant_types_supported missing %q (got %q)", want, doc.GrantTypes)
+			}
 		}
 	})
 }

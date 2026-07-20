@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/zitadel/oidc/v3/pkg/oidc"
+
 	"github.com/strangemattersystems/hamnir/internal/config"
 	"github.com/strangemattersystems/hamnir/internal/persona"
 	"github.com/strangemattersystems/hamnir/internal/provider"
@@ -42,6 +44,9 @@ func New(cfg *config.Config, version string) (http.Handler, error) {
 	// configured audiences are defaulted into the request itself.
 	ph = st.DefaultExchangeAudience(ph)
 	mux.Handle("/", ph)
+	// op's discovery handler advertises response/grant types hamnir never
+	// serves; this route shadows it with the corrected document.
+	mux.HandleFunc("GET "+oidc.DiscoveryEndpoint, provider.Discovery(p, st))
 	web.NewHandler(set, cfg, st.AuthenticateAndComplete, st.LoginHint, provider.AuthCallbackPath).Routes(mux)
 	static.Register(mux, cfg.Static.Paths)
 	mux.HandleFunc("GET /up", func(w http.ResponseWriter, _ *http.Request) {
