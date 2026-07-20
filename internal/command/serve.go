@@ -26,7 +26,7 @@ func Serve(ctx context.Context, configPath, addr, version string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	if len(cfg.Clients) == 0 {
-		slog.Warn("permissive dev mode — accepting any client_id and redirect_uri; DEV ONLY, do not expose to untrusted networks")
+		slog.Warn("permissive mode: no clients registered, so any client_id and redirect_uri are accepted; keep hamnir off untrusted networks")
 	}
 
 	h, err := server.New(cfg, version)
