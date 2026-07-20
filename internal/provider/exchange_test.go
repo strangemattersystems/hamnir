@@ -211,13 +211,13 @@ func TestStorage_CreateAccessToken_Exchange(t *testing.T) {
 		t.Fatalf("access token %q not stored", jti)
 	}
 	if info.SID == "" {
-		t.Fatal("exchange-minted token has no session id")
+		t.Error("exchange-minted token has no session id")
 	}
 	if _, ok := sessions[info.SID]; !ok {
 		t.Fatalf("session %q not registered for usr_alice", info.SID)
 	}
 	if sessions[info.SID].clientID != "myapp" {
-		t.Fatalf("session client = %q, want myapp", sessions[info.SID].clientID)
+		t.Errorf("session client = %q, want myapp", sessions[info.SID].clientID)
 	}
 }
 
@@ -225,12 +225,10 @@ func TestStorage_CreateAccessToken_Exchange(t *testing.T) {
 // exchange path self-bounds the sessions map like every other flow: it mints
 // a fresh sid per call (never touching AuthenticateAndComplete's picker-only
 // prune), so touchSession must sweep stale sids itself or a long-lived server
-// driven only by token exchange would grow s.sessions without bound. Also
-// closes test-gap #1 (exchange session registration) by driving the real
-// storage method rather than asserting on touchSession directly: this would
-// fail if the `if _, ok := request.(op.TokenExchangeRequest); ok { s.touchSession(info) }`
-// branch in CreateAccessAndRefreshTokens were deleted, since no session would
-// ever be registered to prune or find.
+// driven only by token exchange would grow s.sessions without bound. It
+// drives CreateAccessAndRefreshTokens rather than touchSession directly, so
+// deleting the exchange-registration branch there would fail this test: no
+// session would ever be registered to prune or find.
 func TestStorage_CreateAccessAndRefreshTokens_ExchangeEviction(t *testing.T) {
 	t.Parallel()
 
@@ -317,9 +315,9 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 			// op registers /oauth/token method-agnostically and reads
 			// grant_type from the merged form (query + body), so a GET
 			// exchange must default audience exactly like a POST — the
-			// hardening must not be gated on method (Fix A). Query, not body:
-			// GET requests are never form-decoded from the body.
-			name:    "grant_type via GET query is honoured (op is method-agnostic)",
+			// hardening must not be gated on method. Query, not body: GET
+			// requests are never form-decoded from the body.
+			name:    "grant_type via GET query honoured",
 			method:  http.MethodGet,
 			form:    url.Values{"grant_type": {exchangeGrant}},
 			basicID: "app",
@@ -366,8 +364,9 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400", rec.Code)
 		}
-		if !strings.Contains(rec.Body.String(), "error parsing form") {
-			t.Fatalf("body = %q, want the parse-failure response", rec.Body.String())
+		want := `{"error":"invalid_request","error_description":"error parsing form"}`
+		if got := rec.Body.String(); got != want {
+			t.Fatalf("body = %q, want %q", got, want)
 		}
 	})
 
@@ -391,8 +390,9 @@ func TestStorage_DefaultExchangeAudience(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", rec.Code)
 		}
-		if !strings.Contains(rec.Body.String(), "invalid basic auth header") {
-			t.Fatalf("body = %q, want the basic-auth-failure response", rec.Body.String())
+		want := `{"error":"invalid_client","error_description":"invalid basic auth header"}`
+		if got := rec.Body.String(); got != want {
+			t.Fatalf("body = %q, want %q", got, want)
 		}
 		if got := rec.Header().Get("WWW-Authenticate"); got != "Basic" {
 			t.Fatalf("WWW-Authenticate = %q, want %q (RFC 6749 §5.2)", got, "Basic")
@@ -427,12 +427,11 @@ func TestStorage_GetPrivateClaimsFromTokenExchangeRequest(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		scopes    []string
-		wantEmail bool
+		name   string
+		scopes []string
 	}{
-		{name: "email scope requested", scopes: []string{"openid", "email"}, wantEmail: false},
-		{name: "no userinfo scope requested", scopes: []string{"openid"}, wantEmail: false},
+		{name: "email scope requested", scopes: []string{"openid", "email"}},
+		{name: "no userinfo scope requested", scopes: []string{"openid"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -442,11 +441,11 @@ func TestStorage_GetPrivateClaimsFromTokenExchangeRequest(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, ok := claims["email"]; ok != tt.wantEmail {
-				t.Fatalf("email present = %v, want %v", ok, tt.wantEmail)
+			if _, ok := claims["email"]; ok {
+				t.Errorf("email present, want absent: %v", claims)
 			}
 			if _, ok := claims["roles"]; !ok {
-				t.Fatalf("custom claim 'roles' dropped: %v", claims)
+				t.Errorf("custom claim 'roles' dropped: %v", claims)
 			}
 		})
 	}

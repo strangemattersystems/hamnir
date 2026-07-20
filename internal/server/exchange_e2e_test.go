@@ -206,13 +206,13 @@ func TestTokenExchange(t *testing.T) {
 			t.Fatalf("no access_token: %v", body)
 		}
 		if it := body["issued_token_type"]; it != tokenTypeAccess {
-			t.Fatalf("issued_token_type = %v, want %s", it, tokenTypeAccess)
+			t.Errorf("issued_token_type = %v, want %s", it, tokenTypeAccess)
 		}
 		if tt := body["token_type"]; tt != "Bearer" {
-			t.Fatalf("token_type = %v, want Bearer", tt)
+			t.Errorf("token_type = %v, want Bearer", tt)
 		}
 		if rt, ok := body["refresh_token"].(string); ok && rt != "" {
-			t.Fatal("refresh token issued without the refresh token type being requested")
+			t.Error("refresh token issued without the refresh token type being requested")
 		}
 		status, got := userinfoBody(t, e, access)
 		if status != http.StatusOK {
@@ -241,11 +241,14 @@ func TestTokenExchange(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body %v)", status, body)
 		}
+		// Split and sort rather than substring-match: a Contains check per
+		// scope would falsely pass "openid2" against the "openid" want.
 		scope, _ := body["scope"].(string)
-		for _, want := range []string{"openid", "profile", "email"} {
-			if !strings.Contains(scope, want) {
-				t.Fatalf("scope = %q, want %q included", scope, want)
-			}
+		gotScopes := strings.Fields(scope)
+		slices.Sort(gotScopes)
+		wantScopes := []string{"email", "openid", "profile"}
+		if !slices.Equal(gotScopes, wantScopes) {
+			t.Fatalf("scope = %q, want exactly %v", scope, wantScopes)
 		}
 		access, _ := body["access_token"].(string)
 		status, got := userinfoBody(t, e, access)
@@ -408,28 +411,39 @@ func TestTokenExchange(t *testing.T) {
 		}
 		e := discover(t, cfg)
 
-		if status, body := postExchange(t, e, "tests", "s3cret", exchangeForm("alice-ci", nil)); status != http.StatusOK {
-			t.Fatalf("confidential client: status = %d, want 200 (body %v)", status, body)
+		tests := []struct {
+			name       string
+			clientID   string
+			secret     string
+			wantStatus int
+			wantError  string
+		}{
+			{name: "confidential client", clientID: "tests", secret: "s3cret", wantStatus: http.StatusOK, wantError: ""},
+			// op maps every client-auth failure to invalid_client / 401
+			// (pkg/op/error.go); pin the exact status and body, not just !=
+			// 200, so a regression that returns e.g. a bare 400
+			// invalid_request would be caught.
+			{name: "wrong secret", clientID: "tests", secret: "wrong", wantStatus: http.StatusUnauthorized, wantError: "invalid_client"},
+			// Public clients cannot authenticate at the token endpoint (PKCE
+			// has no exchange equivalent), so they identify instead: client
+			// id with an empty secret (RFC 6749 §2.3). Presenting a secret
+			// none was registered for stays a misconfiguration.
+			{name: "public client", clientID: "spa", secret: "", wantStatus: http.StatusOK, wantError: ""},
+			{name: "public client with a secret", clientID: "spa", secret: "surprise", wantStatus: http.StatusUnauthorized, wantError: "invalid_client"},
+			{name: "no client auth", clientID: "", secret: "", wantStatus: http.StatusUnauthorized, wantError: "invalid_client"},
 		}
-		// op maps every client-auth failure to invalid_client / 401
-		// (pkg/op/error.go); pin the exact status and body, not just != 200,
-		// so a regression that returns e.g. a bare 400 invalid_request would
-		// be caught.
-		if status, body := postExchange(t, e, "tests", "wrong", exchangeForm("alice-ci", nil)); status != http.StatusUnauthorized || body["error"] != "invalid_client" {
-			t.Fatalf("wrong secret: status = %d, error = %v, want 401 invalid_client (body %v)", status, body["error"], body)
-		}
-		// Public clients cannot authenticate at the token endpoint (PKCE has
-		// no exchange equivalent), so they identify instead: client id with
-		// an empty secret (RFC 6749 §2.3). Presenting a secret none was
-		// registered for stays a misconfiguration.
-		if status, body := postExchange(t, e, "spa", "", exchangeForm("alice-ci", nil)); status != http.StatusOK {
-			t.Fatalf("public client: status = %d, want 200 (body %v)", status, body)
-		}
-		if status, body := postExchange(t, e, "spa", "surprise", exchangeForm("alice-ci", nil)); status != http.StatusUnauthorized || body["error"] != "invalid_client" {
-			t.Fatalf("public client with a secret: status = %d, error = %v, want 401 invalid_client (body %v)", status, body["error"], body)
-		}
-		if status, body := postExchange(t, e, "", "", exchangeForm("alice-ci", nil)); status != http.StatusUnauthorized || body["error"] != "invalid_client" {
-			t.Fatalf("no client auth: status = %d, error = %v, want 401 invalid_client (body %v)", status, body["error"], body)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				status, body := postExchange(t, e, tt.clientID, tt.secret, exchangeForm("alice-ci", nil))
+				if status != tt.wantStatus {
+					t.Errorf("status = %d, want %d (body %v)", status, tt.wantStatus, body)
+				}
+				if got, _ := body["error"].(string); got != tt.wantError {
+					t.Errorf("error = %q, want %q", got, tt.wantError)
+				}
+			})
 		}
 	})
 
@@ -495,8 +509,11 @@ func TestTokenExchange(t *testing.T) {
 
 		registered := tokenConfig()
 		registered.Clients = []config.Client{{ID: "app", Secret: "s3cret"}}
+		wantBody := `{"error":"invalid_request","error_description":"error parsing form"}`
 		for name, cfg := range map[string]*config.Config{"permissive": tokenConfig(), "registered": registered} {
 			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
 				e := discover(t, cfg)
 				req, _ := http.NewRequest(http.MethodPost, e.rp.Endpoint().TokenURL, strings.NewReader("a=%zz"))
 				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -505,15 +522,17 @@ func TestTokenExchange(t *testing.T) {
 					t.Fatal(err)
 				}
 				body := readBody(t, resp)
-				if resp.StatusCode != http.StatusBadRequest || !strings.Contains(body, "error parsing form") {
-					t.Fatalf("status = %d body = %q, want 400 with parse-failure error", resp.StatusCode, body)
+				if resp.StatusCode != http.StatusBadRequest || body != wantBody {
+					t.Fatalf("status = %d body = %q, want 400 %q", resp.StatusCode, body, wantBody)
 				}
 			})
 		}
 	})
 
 	// a malformed Basic header on an exchange must fail closed: op's own
-	// parse-error path panics on it upstream, so the middleware answers first.
+	// parse-error path panics on it upstream, so the middleware answers
+	// first, carrying a WWW-Authenticate challenge on its 401 (RFC 6749
+	// §5.2), not just the status.
 	t.Run("malformed basic auth rejected", func(t *testing.T) {
 		t.Parallel()
 
@@ -528,40 +547,23 @@ func TestTokenExchange(t *testing.T) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("status = %d, want 401", resp.StatusCode)
+			t.Errorf("status = %d, want 401", resp.StatusCode)
 		}
-	})
-
-	// a malformed Basic header must carry a WWW-Authenticate challenge on its
-	// 401 (RFC 6749 §5.2), not just the status.
-	t.Run("malformed basic auth 401 carries WWW-Authenticate", func(t *testing.T) {
-		t.Parallel()
-
-		e := discover(t, tokenConfig())
-		form := exchangeForm("alice-ci", nil)
-		req, _ := http.NewRequest(http.MethodPost, e.rp.Endpoint().TokenURL, strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("a%zz:")))
-		resp, err := e.client.Do(req)
-		if err != nil {
-			t.Fatalf("malformed basic auth: %v", err)
-		}
-		defer func() { _ = resp.Body.Close() }()
 		if got := resp.Header.Get("WWW-Authenticate"); got != "Basic" {
-			t.Fatalf("WWW-Authenticate = %q, want %q", got, "Basic")
+			t.Errorf("WWW-Authenticate = %q, want %q", got, "Basic")
 		}
 	})
 
 	// op registers /oauth/token method-agnostically and dispatches on
 	// r.FormValue("grant_type"), which merges the query string — so a GET
-	// exchange must get the same hardening a POST gets (Fix A).
+	// exchange must get the same hardening a POST gets.
 	t.Run("non-POST exchange hardening", func(t *testing.T) {
 		t.Parallel()
 
-		// Before Fix A, a malformed Basic header on a GET exchange reached
-		// op's own error path, which is missing a `return` and panics on a
-		// nil request (see ParseTokenExchangeRequest/TokenExchange in
-		// pkg/op/token_exchange.go) — asserting a clean 401 here, not a
+		// Without this hardening, a malformed Basic header on a GET exchange
+		// would reach op's own error path, which is missing a `return` and
+		// panics on a nil request (see ParseTokenExchangeRequest/TokenExchange
+		// in pkg/op/token_exchange.go) — asserting a clean 401 here, not a
 		// connection error or 5xx, proves the panic is pre-answered on GET.
 		t.Run("malformed basic auth is pre-answered, not a panic", func(t *testing.T) {
 			t.Parallel()
@@ -580,7 +582,7 @@ func TestTokenExchange(t *testing.T) {
 			}
 		})
 
-		// Before Fix A, the audience-defaulting block was gated on
+		// Without this hardening, the audience-defaulting block was gated on
 		// r.Method == http.MethodPost, so this same request sent by GET
 		// silently skipped defaulting and minted a token with no aud.
 		t.Run("well-formed GET exchange still gets audience defaulted", func(t *testing.T) {
@@ -662,7 +664,7 @@ func TestTokenExchange(t *testing.T) {
 	// introspection through that same method (ClientIDFromRequest ->
 	// ClientBasicAuth -> storage.AuthorizeClientIDSecret), that loosening
 	// must not let a public client introspect tokens too (RFC 7662 §2.1
-	// requires client authentication — Fix Q1).
+	// requires client authentication).
 	t.Run("introspection stays scoped to confidential clients", func(t *testing.T) {
 		t.Parallel()
 
@@ -710,7 +712,7 @@ func TestTokenExchange(t *testing.T) {
 	// Standard OAuth client libraries send client_id (and client_secret) in
 	// the token request body — Basic auth is not universal (RFC 6749 §3.2.1,
 	// client_secret_post) — so the DefaultExchangeAudience middleware bridges
-	// either into a Basic header before op ever parses the request (Fix Q3).
+	// either into a Basic header before op ever parses the request.
 	t.Run("body client_id bridges into Basic auth", func(t *testing.T) {
 		t.Parallel()
 

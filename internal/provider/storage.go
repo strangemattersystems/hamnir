@@ -149,8 +149,8 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 // pruneSessionsLocked evicts sids not seen within the refresh TTL and drops
 // any subject left with no sessions. Shared by every write site that inserts
 // into s.sessions (AuthenticateAndComplete's picker path and touchSession's
-// exchange path) so the map self-bounds regardless of which flow drives a
-// long-running server. Callers must hold s.mu.
+// rotation/exchange path) so the map self-bounds regardless of which flow
+// drives a long-running server. Callers must hold s.mu.
 func (s *Storage) pruneSessionsLocked(now time.Time) {
 	for subject, sids := range s.sessions {
 		maps.DeleteFunc(sids, func(_ string, sess session) bool {

@@ -89,7 +89,7 @@ Against the [example config](examples/hamnir.yaml) — which registers `example-
 The knobs:
 
 - `scope` defaults to `openid profile email` when omitted.
-- Also want a refresh token? Request it with `-d requested_token_type=urn:ietf:params:oauth:token-type:refresh_token` — the response then carries both tokens (op returns the access token in `access_token` and the refresh token in `refresh_token`; `issued_token_type` reflects your request).
+- Also want a refresh token? Request it with `-d requested_token_type=urn:ietf:params:oauth:token-type:refresh_token` — the response then carries both tokens (the access token in `access_token` and the refresh token in `refresh_token`; `issued_token_type` reflects your request).
 - Ask for an ID token instead with `-d requested_token_type=urn:ietf:params:oauth:token-type:id_token`.
 - Your configured `audiences:` apply to exchanged tokens just like every other flow. Override per request with `-d audience=https://other.test` — the override applies to the tokens from that exchange; refreshed tokens re-derive their audience from config.
 - In permissive mode, `-u myapp:` just names the client your tokens are minted for (any id, no secret). With registered clients, use one of them: a client with a `secret` authenticates as usual (`-u id:secret`), and a public client simply identifies itself with an empty secret (`-u id:`).
