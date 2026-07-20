@@ -47,7 +47,7 @@ func New(cfg *config.Config, version string) (http.Handler, error) {
 	// op's discovery handler advertises response/grant types hamnir never
 	// serves; this route shadows it with the corrected document.
 	mux.HandleFunc("GET "+oidc.DiscoveryEndpoint, provider.Discovery(p, st))
-	web.NewHandler(set, cfg, st.AuthenticateAndComplete, st.LoginHint, provider.AuthCallbackPath).Routes(mux)
+	web.NewHandler(set, cfg, st.AuthenticateAndComplete, st.LoginHint, st, provider.AuthCallbackPath).Routes(mux)
 	static.Register(mux, cfg.Static.Paths)
 	mux.HandleFunc("GET /up", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

@@ -129,7 +129,7 @@ func TestStorage_DeviceAuthorization(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStorage(t)
-		dc, _ := storeDevice(t, st, "cli")
+		dc, _ := storeDevice(t, st, "mine")
 		if _, err := st.GetDeviceAuthorizatonState(ctx, "other", dc); err == nil {
 			t.Fatal("expected an error for a client mismatch")
 		}

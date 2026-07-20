@@ -27,8 +27,8 @@
       <h2 class="group-label"><span class="dot" style="background: {{ .Colour }}"></span>{{ .Label }}</h2>
       <div class="grid">
       {{ range .Personas }}
-        <form method="post" action="/login/select" data-search="{{ .Search }}">
-          <input type="hidden" name="authRequestID" value="{{ $.AuthRequestID }}">
+        <form method="post" action="{{ $.FormAction }}" data-search="{{ .Search }}">
+          <input type="hidden" name="{{ $.RequestField }}" value="{{ $.RequestValue }}">
           <input type="hidden" name="sub" value="{{ .Sub }}">
           <button class="card">
             {{ if .Picture }}<img class="avatar" src="{{ .Picture }}" alt="">{{ else }}<span class="avatar-placeholder" aria-hidden="true">{{ .Initial }}</span>{{ end }}
@@ -43,6 +43,12 @@
     </section>
     {{ end }}
     <p class="no-match" role="status" hidden>No personas match.</p>
+    {{ if .DenyAction }}
+    <form class="deny" method="post" action="{{ .DenyAction }}">
+      <input type="hidden" name="userCode" value="{{ .RequestValue }}">
+      <button class="deny-link">Deny this device</button>
+    </form>
+    {{ end }}
   </main>
 
   <footer class="site-footer">

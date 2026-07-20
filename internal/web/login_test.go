@@ -21,13 +21,13 @@ func newTestHandler(complete func(string, string) error) *Handler {
 		Groups:   []config.Group{{ID: "standard", Label: "Standard", Colour: "#3fb950"}},
 		Personas: []config.Persona{{Name: "Alice", Group: "standard", Claims: map[string]any{"sub": "usr_alice"}}},
 	}
-	return NewHandler(persona.NewSet(cfg), cfg, complete, noHint, "/authorize/callback")
+	return NewHandler(persona.NewSet(cfg), cfg, complete, noHint, newFakeGate(), "/authorize/callback")
 }
 
 // newHandlerWith builds a picker Handler over the given personas and no groups.
 func newHandlerWith(personas ...config.Persona) *Handler {
 	cfg := &config.Config{Personas: personas}
-	return NewHandler(persona.NewSet(cfg), cfg, func(string, string) error { return nil }, noHint, "/cb")
+	return NewHandler(persona.NewSet(cfg), cfg, func(string, string) error { return nil }, noHint, newFakeGate(), "/cb")
 }
 
 // noHint is the login-hint lookup for tests that don't exercise hints.
@@ -37,7 +37,55 @@ func noHint(string) (string, bool) { return "", false }
 // hint/allowAuto pair, over the given personas and no groups.
 func newHintedHandler(hint string, allowAuto bool, complete func(string, string) error, personas ...config.Persona) *Handler {
 	cfg := &config.Config{Personas: personas}
-	return NewHandler(persona.NewSet(cfg), cfg, complete, func(string) (string, bool) { return hint, allowAuto }, "/cb")
+	return NewHandler(persona.NewSet(cfg), cfg, complete, func(string) (string, bool) { return hint, allowAuto }, newFakeGate(), "/cb")
+}
+
+// fakeGate is an in-memory web.DeviceGate for handler tests.
+type fakeGate struct {
+	valid    map[string]bool
+	approved map[string]string
+	denied   map[string]bool
+	err      error
+}
+
+func newFakeGate(codes ...string) *fakeGate {
+	g := &fakeGate{valid: map[string]bool{}, approved: map[string]string{}, denied: map[string]bool{}}
+	for _, c := range codes {
+		g.valid[c] = true
+	}
+	return g
+}
+
+func (g *fakeGate) LookupDeviceUserCode(code string) error {
+	if g.err != nil {
+		return g.err
+	}
+	if !g.valid[code] {
+		return provider.ErrDeviceCodeNotFound
+	}
+	return nil
+}
+
+func (g *fakeGate) ApproveDevice(code, sub string) error {
+	if err := g.LookupDeviceUserCode(code); err != nil {
+		return err
+	}
+	g.approved[code] = sub
+	return nil
+}
+
+func (g *fakeGate) DenyDevice(code string) error {
+	if err := g.LookupDeviceUserCode(code); err != nil {
+		return err
+	}
+	g.denied[code] = true
+	return nil
+}
+
+// newDeviceHandler builds a picker Handler over the given gate and personas.
+func newDeviceHandler(gate DeviceGate, personas ...config.Persona) *Handler {
+	cfg := &config.Config{Personas: personas}
+	return NewHandler(persona.NewSet(cfg), cfg, func(string, string) error { return nil }, noHint, gate, "/cb")
 }
 
 // getLoginPage drives a GET of the picker and returns the recorded response.
@@ -252,6 +300,15 @@ func TestHandler_getLogin(t *testing.T) {
 			t.Errorf("expected escaped value attribute, got:\n%s", out)
 		}
 	})
+
+	t.Run("login picker still posts to /login/select", func(t *testing.T) {
+		t.Parallel()
+
+		out := getLoginPage(newTestHandler(func(_, _ string) error { return nil })).Body.String()
+		if !strings.Contains(out, `action="/login/select"`) || !strings.Contains(out, `name="authRequestID"`) {
+			t.Errorf("picker form target regressed:\n%s", out)
+		}
+	})
 }
 
 func TestHandler_hintedSub(t *testing.T) {
@@ -400,7 +457,7 @@ func TestHandler_buildPage(t *testing.T) {
 			t.Parallel()
 
 			cfg := &config.Config{Groups: groups, Personas: tt.personas}
-			h := NewHandler(persona.NewSet(cfg), cfg, func(string, string) error { return nil }, noHint, "/cb")
+			h := NewHandler(persona.NewSet(cfg), cfg, func(string, string) error { return nil }, noHint, newFakeGate(), "/cb")
 			var got []string
 			for _, g := range h.buildPage("x").Groups {
 				got = append(got, g.Label)
@@ -410,4 +467,106 @@ func TestHandler_buildPage(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandler_device(t *testing.T) {
+	t.Parallel()
+
+	alice := config.Persona{Name: "Alice", Claims: map[string]any{"sub": "usr_alice"}}
+	serve := func(h *Handler, method, target string, form url.Values) *httptest.ResponseRecorder {
+		t.Helper()
+		mux := http.NewServeMux()
+		h.Routes(mux)
+		var req *http.Request
+		if form != nil {
+			req = httptest.NewRequest(method, target, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		} else {
+			req = httptest.NewRequest(method, target, nil)
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	t.Run("entry form renders", func(t *testing.T) {
+		t.Parallel()
+
+		h := newDeviceHandler(newFakeGate(), alice)
+		out := serve(h, http.MethodGet, "/device", nil).Body.String()
+		if !strings.Contains(out, `name="user_code"`) {
+			t.Errorf("expected the user-code form, got:\n%s", out)
+		}
+	})
+
+	t.Run("valid prefilled code renders the picker at the device target", func(t *testing.T) {
+		t.Parallel()
+
+		h := newDeviceHandler(newFakeGate("BCDF-GHJK"), alice)
+		out := serve(h, http.MethodGet, "/device?user_code=BCDF-GHJK", nil).Body.String()
+		if !strings.Contains(out, `action="/device/select"`) || !strings.Contains(out, `value="BCDF-GHJK"`) {
+			t.Errorf("expected the picker targeting /device/select, got:\n%s", out)
+		}
+		if !strings.Contains(out, `action="/device/deny"`) {
+			t.Errorf("expected a deny action, got:\n%s", out)
+		}
+	})
+
+	t.Run("invalid code re-renders the entry form with a message", func(t *testing.T) {
+		t.Parallel()
+
+		h := newDeviceHandler(newFakeGate(), alice)
+		rec := serve(h, http.MethodGet, "/device?user_code=XXXX-XXXX", nil)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "code was not recognised") {
+			t.Errorf("expected a friendly re-render, got %d:\n%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("select approves and renders the connected page", func(t *testing.T) {
+		t.Parallel()
+
+		g := newFakeGate("BCDF-GHJK")
+		h := newDeviceHandler(g, alice)
+		out := serve(h, http.MethodPost, "/device/select", url.Values{"userCode": {"BCDF-GHJK"}, "sub": {"usr_alice"}}).Body.String()
+		if g.approved["BCDF-GHJK"] != "usr_alice" {
+			t.Fatalf("approve not called, gate: %+v", g)
+		}
+		if !strings.Contains(out, "Device connected") {
+			t.Errorf("expected the connected page, got:\n%s", out)
+		}
+	})
+
+	t.Run("unknown persona is rejected before the gate", func(t *testing.T) {
+		t.Parallel()
+
+		g := newFakeGate("BCDF-GHJK")
+		h := newDeviceHandler(g, alice)
+		rec := serve(h, http.MethodPost, "/device/select", url.Values{"userCode": {"BCDF-GHJK"}, "sub": {"nobody"}})
+		if rec.Code != http.StatusBadRequest || len(g.approved) != 0 {
+			t.Fatalf("expected 400 and no approval, got %d %+v", rec.Code, g.approved)
+		}
+	})
+
+	t.Run("deny renders the denied page", func(t *testing.T) {
+		t.Parallel()
+
+		g := newFakeGate("BCDF-GHJK")
+		h := newDeviceHandler(g, alice)
+		out := serve(h, http.MethodPost, "/device/deny", url.Values{"userCode": {"BCDF-GHJK"}}).Body.String()
+		if !g.denied["BCDF-GHJK"] || !strings.Contains(out, "denied") {
+			t.Errorf("expected denial, gate %+v, body:\n%s", g, out)
+		}
+	})
+
+	t.Run("expired code on select re-renders the entry form", func(t *testing.T) {
+		t.Parallel()
+
+		g := newFakeGate("BCDF-GHJK")
+		g.err = provider.ErrDeviceCodeExpired
+		h := newDeviceHandler(g, alice)
+		rec := serve(h, http.MethodPost, "/device/select", url.Values{"userCode": {"BCDF-GHJK"}, "sub": {"usr_alice"}})
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "expired") {
+			t.Errorf("expected the expired message, got %d:\n%s", rec.Code, rec.Body.String())
+		}
+	})
 }

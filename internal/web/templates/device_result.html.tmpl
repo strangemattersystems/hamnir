@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hamnir — device {{ if .Connected }}connected{{ else }}denied{{ end }}</title>
+<style>{{ .CSS }}</style>
+</head>
+<body>
+<div class="app">
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <div class="brand">
+        <div class="brand-name">hamnir</div>
+        <div class="brand-tagline">dev-only OpenID Connect provider</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    {{ if .Connected }}
+    <h1 class="device-title">Device connected</h1>
+    <p class="device-lede">You can close this tab — the device will finish signing in on its own.</p>
+    {{ else }}
+    <h1 class="device-title">Device denied</h1>
+    <p class="device-lede">The device was told no. You can close this tab.</p>
+    {{ end }}
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p class="caption">Personas are defined in your <code>hamnir.yaml</code>.</p>
+    </div>
+  </footer>
+</div>
+</body>
+</html>
