@@ -29,8 +29,8 @@ const (
 )
 
 // errNotSupported is returned by op.Storage methods for flows hamnir does not
-// implement (device authorization, JWT-profile / client assertions,
-// client-secret credential grants).
+// implement (JWT-profile / client assertions, client-secret credential
+// grants).
 var errNotSupported = errors.New("not supported by hamnir")
 
 // ErrAuthRequestNotFound and ErrAuthRequestDone let the login UI distinguish
@@ -56,11 +56,13 @@ type Storage struct {
 	// lookups need no lock.
 	exchangeTokens map[string]string
 
-	mu           sync.Mutex
-	authRequests map[string]*authRequest       // id -> request
-	codes        map[string]string             // authorization code -> request id
-	accessTokens map[string]*accessTokenInfo   // jti -> token metadata
-	sessions     map[string]map[string]session // subject -> active sid -> session
+	mu              sync.Mutex
+	authRequests    map[string]*authRequest       // id -> request
+	codes           map[string]string             // authorization code -> request id
+	accessTokens    map[string]*accessTokenInfo   // jti -> token metadata
+	sessions        map[string]map[string]session // subject -> active sid -> session
+	deviceRequests  map[string]*deviceRequest     // device code -> request
+	deviceUserCodes map[string]string             // normalized user code -> device code
 }
 
 // session records which client a sid was minted for and when a token carrying
@@ -108,10 +110,12 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 		signing:        &signingKey{id: kid, key: key},
 		exchangeTokens: exchangeTokens,
 
-		authRequests: make(map[string]*authRequest),
-		codes:        make(map[string]string),
-		accessTokens: make(map[string]*accessTokenInfo),
-		sessions:     make(map[string]map[string]session),
+		authRequests:    make(map[string]*authRequest),
+		codes:           make(map[string]string),
+		accessTokens:    make(map[string]*accessTokenInfo),
+		sessions:        make(map[string]map[string]session),
+		deviceRequests:  make(map[string]*deviceRequest),
+		deviceUserCodes: make(map[string]string),
 	}, nil
 }
 

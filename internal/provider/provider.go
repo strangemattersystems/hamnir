@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
 	"golang.org/x/text/language"
@@ -27,7 +28,10 @@ import (
 // context, and the picker routes are mounted on the outer mux outside op's
 // issuer middleware — so hamnir deliberately redirects via this relative path
 // instead. Revisit if op's callback wiring changes on upgrade.
-const AuthCallbackPath = "/authorize/callback"
+const (
+	AuthCallbackPath = "/authorize/callback"
+	DevicePath       = "/device"
+)
 
 // randID returns a hex-encoded, cryptographically-random identifier used for
 // auth request ids, authorization codes and session ids.
@@ -113,6 +117,12 @@ func NewProvider(cfg *config.Config, s *Storage) (*op.Provider, error) {
 		AuthMethodPost:           true,
 		GrantTypeRefreshToken:    true,
 		SupportedUILocales:       []language.Tag{language.English},
+		DeviceAuthorization: op.DeviceAuthorizationConfig{
+			Lifetime:     5 * time.Minute,
+			PollInterval: 5 * time.Second,
+			UserFormPath: DevicePath,
+			UserCode:     op.UserCodeBase20,
+		},
 	}
 
 	issuer := op.IssuerFromHost("")
@@ -130,6 +140,9 @@ func NewProvider(cfg *config.Config, s *Storage) (*op.Provider, error) {
 			op.WithCustomAuthEndpoint(op.NewEndpointWithURL("authorize", cfg.BrowserURL+"/authorize")),
 			op.WithCustomEndSessionEndpoint(op.NewEndpointWithURL("end_session", cfg.BrowserURL+"/end_session")),
 		)
+		// UserFormURL is deprecated upstream but is the only complete-URL override;
+		// the verification URI must point at the browser-reachable host.
+		opConfig.DeviceAuthorization.UserFormURL = cfg.BrowserURL + DevicePath
 	}
 
 	return op.NewProvider(opConfig, s, issuer, opts...)
