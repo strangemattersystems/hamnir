@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"unicode"
 
 	"github.com/strangemattersystems/hamnir/internal/config"
@@ -40,6 +41,7 @@ type cardVM struct {
 	Initial     string
 	Description string
 	Picture     string
+	Search      string
 }
 
 type groupVM struct {
@@ -135,6 +137,7 @@ func (h *Handler) buildPage(authRequestID string) pageVM {
 			Initial:     initial(name),
 			Description: p.Description,
 			Picture:     picture,
+			Search:      searchText(name, p.Description, sub),
 		})
 	}
 
@@ -161,4 +164,10 @@ func initial(name string) string {
 		return string(unicode.ToUpper(r))
 	}
 	return "?"
+}
+
+// searchText builds the haystack the picker's search box matches against:
+// the persona's name, description and sub, lowercased and space-joined.
+func searchText(name, description, sub string) string {
+	return strings.ToLower(strings.Join(strings.Fields(name+" "+description+" "+sub), " "))
 }

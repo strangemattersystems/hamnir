@@ -50,6 +50,31 @@ func submitSelection(h *Handler, form url.Values) *httptest.ResponseRecorder {
 	return rec
 }
 
+func TestSearchText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		pname       string
+		description string
+		sub         string
+		want        string
+	}{
+		{"lowercases and joins the fields", "Ada Lovelace", "First Programmer", "USR_Ada", "ada lovelace first programmer usr_ada"},
+		{"empty description leaves no gap", "Bob", "", "usr_bob", "bob usr_bob"},
+		{"all empty yields empty", "", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := searchText(tt.pname, tt.description, tt.sub); got != tt.want {
+				t.Errorf("searchText(%q, %q, %q) = %q, want %q", tt.pname, tt.description, tt.sub, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHandler_getLogin(t *testing.T) {
 	t.Parallel()
 
@@ -71,6 +96,19 @@ func TestHandler_getLogin(t *testing.T) {
 		}
 		if !strings.Contains(out, "<style>") || !strings.Contains(out, ".card") {
 			t.Error("expected the stylesheet inlined into a <style> block")
+		}
+	})
+
+	t.Run("cards carry a data-search haystack", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandlerWith(config.Persona{
+			Name:        "Ada Lovelace",
+			Description: "First Programmer",
+			Claims:      map[string]any{"sub": "usr_ada"},
+		})
+		if out := getLoginPage(h).Body.String(); !strings.Contains(out, `data-search="ada lovelace first programmer usr_ada"`) {
+			t.Errorf("expected lowercased data-search attribute, got:\n%s", out)
 		}
 	})
 

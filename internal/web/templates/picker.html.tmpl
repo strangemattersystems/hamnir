@@ -24,7 +24,7 @@
       <h2 class="group-label"><span class="dot" style="background: {{ .Colour }}"></span>{{ .Label }}</h2>
       <div class="grid">
       {{ range .Personas }}
-        <form method="post" action="/login/select">
+        <form method="post" action="/login/select" data-search="{{ .Search }}">
           <input type="hidden" name="authRequestID" value="{{ $.AuthRequestID }}">
           <input type="hidden" name="sub" value="{{ .Sub }}">
           <button class="card">
