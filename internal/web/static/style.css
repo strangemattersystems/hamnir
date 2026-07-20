@@ -178,6 +178,7 @@ main { flex: 1; padding-block: 2.5rem; }
   cursor: pointer;
 }
 .device-submit:hover { border-color: var(--muted); background: var(--hover-bg); }
+.device-submit:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 .deny { margin-top: 2rem; }
 .deny-link {
   padding: 0;
@@ -190,6 +191,7 @@ main { flex: 1; padding-block: 2.5rem; }
   cursor: pointer;
 }
 .deny-link:hover { color: var(--fg); }
+.deny-link:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 
 /* Footer */
 .site-footer { border-top: 1px solid var(--border); padding-block: 1rem; }
