@@ -38,6 +38,9 @@ func New(cfg *config.Config, version string) (http.Handler, error) {
 	if len(cfg.Clients) == 0 {
 		ph = provider.ObserveClientPresentation(p)
 	}
+	// Exchange requests carry no server-side audience hook in op, so the
+	// configured audiences are defaulted into the request itself.
+	ph = st.DefaultExchangeAudience(ph)
 	mux.Handle("/", ph)
 	web.NewHandler(set, cfg, st.AuthenticateAndComplete, provider.AuthCallbackPath).Routes(mux)
 	static.Register(mux, cfg.Static.Paths)

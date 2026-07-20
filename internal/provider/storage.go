@@ -29,8 +29,8 @@ const (
 )
 
 // errNotSupported is returned by op.Storage methods for flows hamnir does not
-// implement (device authorization, token exchange, JWT-profile / client
-// assertions, client-secret credential grants).
+// implement (device authorization, JWT-profile / client assertions,
+// client-secret credential grants).
 var errNotSupported = errors.New("not supported by hamnir")
 
 // ErrAuthRequestNotFound and ErrAuthRequestDone let the login UI distinguish
@@ -50,6 +50,11 @@ type Storage struct {
 	personas *persona.Set
 	refresh  *RefreshTokenManager
 	signing  *signingKey
+
+	// exchangeTokens maps each static persona token (config tokens:) to its
+	// persona's sub. Built once at construction; read-only thereafter, so
+	// lookups need no lock.
+	exchangeTokens map[string]string
 
 	mu           sync.Mutex
 	authRequests map[string]*authRequest       // id -> request
@@ -89,11 +94,19 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 	if err != nil {
 		return nil, fmt.Errorf("derive key id: %w", err)
 	}
+	exchangeTokens := make(map[string]string)
+	for _, p := range cfg.Personas {
+		sub, _ := p.Claims["sub"].(string)
+		for _, tok := range p.Tokens {
+			exchangeTokens[tok] = sub
+		}
+	}
 	return &Storage{
-		cfg:      cfg,
-		personas: set,
-		refresh:  refresh,
-		signing:  &signingKey{id: kid, key: key},
+		cfg:            cfg,
+		personas:       set,
+		refresh:        refresh,
+		signing:        &signingKey{id: kid, key: key},
+		exchangeTokens: exchangeTokens,
 
 		authRequests: make(map[string]*authRequest),
 		codes:        make(map[string]string),
@@ -125,7 +138,20 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 
 	// Prune sids not seen within the refresh TTL: lastSeen is refreshed on
 	// every rotation, so expiry here means no live token can carry the sid.
-	now := req.authTime
+	s.pruneSessionsLocked(req.authTime)
+	if s.sessions[sub] == nil {
+		s.sessions[sub] = make(map[string]session)
+	}
+	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: req.authTime}
+	return nil
+}
+
+// pruneSessionsLocked evicts sids not seen within the refresh TTL and drops
+// any subject left with no sessions. Shared by every write site that inserts
+// into s.sessions (AuthenticateAndComplete's picker path and touchSession's
+// rotation/exchange path) so the map self-bounds regardless of which flow
+// drives a long-running server. Callers must hold s.mu.
+func (s *Storage) pruneSessionsLocked(now time.Time) {
 	for subject, sids := range s.sessions {
 		maps.DeleteFunc(sids, func(_ string, sess session) bool {
 			return now.Sub(sess.lastSeen) > s.refresh.ttl
@@ -134,11 +160,6 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 			delete(s.sessions, subject)
 		}
 	}
-	if s.sessions[sub] == nil {
-		s.sessions[sub] = make(map[string]session)
-	}
-	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: req.authTime}
-	return nil
 }
 
 func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
@@ -242,14 +263,20 @@ func (s *Storage) DeleteAuthRequest(ctx context.Context, id string) error {
 	return nil
 }
 
-// CreateAccessToken issues a standalone access token. hamnir grants
-// offline_access by default (see withOfflineAccess), so op routes issuance
-// through CreateAccessAndRefreshTokens instead; this satisfies op.Storage and
-// is reached only if that policy changes.
+// CreateAccessToken issues a standalone access token. op routes code-flow
+// issuance through CreateAccessAndRefreshTokens (hamnir grants offline_access
+// by default — see withOfflineAccess); this path is reached by token exchanges
+// that requested an access token.
 func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest) (string, time.Time, error) {
 	info, err := requestInfo(request)
 	if err != nil {
 		return "", time.Time{}, err
+	}
+	// An exchange starts a session outside the picker flow, which registers
+	// sessions in AuthenticateAndComplete; register it here instead so
+	// logout/termination reaches programmatic logins too.
+	if _, ok := request.(op.TokenExchangeRequest); ok {
+		s.touchSession(info)
 	}
 	jti, exp := s.storeAccessToken(info)
 	return jti, exp, nil
@@ -259,6 +286,11 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	info, err := requestInfo(request)
 	if err != nil {
 		return "", "", time.Time{}, err
+	}
+	// An exchange starts a session outside the picker flow; register it here
+	// too (see CreateAccessToken) so logout/termination reaches it.
+	if _, ok := request.(op.TokenExchangeRequest); ok {
+		s.touchSession(info)
 	}
 	jti, exp := s.storeAccessToken(info)
 
@@ -280,17 +312,23 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	return jti, rt, exp, nil
 }
 
-// touchSession upserts the session entry for a freshly rotated token. Upsert,
-// not update: the sid may have been pruned or lost to a restart, and rotation
-// proves the session is live, so re-registering it keeps logout able to
-// revoke it.
+// touchSession upserts the session entry for a freshly rotated or exchanged
+// token. Upsert, not update: the sid may have been pruned or lost to a
+// restart, and this call proves the session is live, so re-registering it
+// keeps logout able to revoke it.
 func (s *Storage) touchSession(info TokenClaims) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Every token exchange mints a fresh sid (see requestInfo) and reaches
+	// this method, never AuthenticateAndComplete's picker-only prune, so a
+	// long-lived server driven only by token exchange would otherwise grow
+	// s.sessions without bound.
+	now := time.Now()
+	s.pruneSessionsLocked(now)
 	if s.sessions[info.Sub] == nil {
 		s.sessions[info.Sub] = make(map[string]session)
 	}
-	s.sessions[info.Sub][info.SID] = session{clientID: info.ClientID, lastSeen: time.Now()}
+	s.sessions[info.Sub][info.SID] = session{clientID: info.ClientID, lastSeen: now}
 }
 
 func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration time.Time) {
@@ -470,7 +508,15 @@ func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientS
 		return fmt.Errorf("client %q not found", clientID)
 	}
 	if c.Secret == "" {
-		return errors.New("client is public; use PKCE")
+		// Public clients identify rather than authenticate (RFC 6749 §2.3):
+		// an empty presented secret is accepted, which is what admits them to
+		// grants that have no PKCE step, like the token exchange (RFC 8693
+		// §2.1 leaves that policy to the deployment). A non-empty secret for
+		// a client that has none registered is a misconfiguration.
+		if clientSecret != "" {
+			return errors.New("unexpected secret for a public client")
+		}
+		return nil
 	}
 	if c.Secret != clientSecret {
 		return errors.New("invalid client secret")
@@ -502,6 +548,17 @@ func (s *Storage) SetUserinfoFromToken(ctx context.Context, userinfo *oidc.UserI
 }
 
 func (s *Storage) SetIntrospectionFromToken(ctx context.Context, introspection *oidc.IntrospectionResponse, tokenID, subject, clientID string) error {
+	// Introspection requires client authentication (RFC 7662 §2.1). The
+	// exchange grant admits public clients by identification alone (see
+	// AuthorizeClientIDSecret), but op funnels introspection through that same
+	// method before calling here, so that loosening must not extend to
+	// introspection: when clients are registered, require the caller be a
+	// confidential one. Permissive mode (no clients) is unchanged.
+	if len(s.cfg.Clients) > 0 {
+		if c, ok := s.clientConfig(clientID); !ok || c.Secret == "" {
+			return errors.New("introspection requires a confidential client")
+		}
+	}
 	s.mu.Lock()
 	info, ok := s.accessTokens[tokenID]
 	s.mu.Unlock()
@@ -558,13 +615,18 @@ func (s *Storage) ValidateJWTProfileScopes(ctx context.Context, userID string, s
 func (s *Storage) Health(ctx context.Context) error { return nil }
 
 // requestInfo extracts the token claims from the concrete op.TokenRequest
-// types hamnir produces (auth-code flow and refresh flow).
+// types hamnir produces (auth-code flow and refresh flow) and op's token
+// exchange requests.
 func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 	switch r := req.(type) {
 	case *authRequest:
 		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes}, nil
 	case *refreshRequest:
 		return r.TokenClaims, nil
+	case op.TokenExchangeRequest:
+		// A token exchange is a fresh programmatic login: mint a new session
+		// id so its refresh tokens are revocable like any other session's.
+		return TokenClaims{Sub: r.GetSubject(), ClientID: r.GetClientID(), SID: randID(), Scopes: r.GetScopes()}, nil
 	default:
 		// No other flow should reach token creation (unsupported grants are
 		// cut off earlier); minting from an unknown type would silently issue

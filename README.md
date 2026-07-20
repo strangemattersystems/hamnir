@@ -61,11 +61,45 @@ The [example compose file](examples/docker-compose.yml) shows how to wire the co
 
 [`examples/`](examples/) runs hamnir next to a small relying-party web app with Docker Compose, so you can watch the whole flow — picker, redirect, token exchange, claims — in a browser. Start there if you'd rather see it than read about it.
 
+## Log in programmatically
+
+Tests, scripts and CI jobs can skip the picker entirely. Give a persona one or more `tokens:` — any string you like — and exchange one for real tokens with a single request, using the standard OAuth token exchange grant (RFC 8693):
+
+```yaml
+personas:
+  - name: Alice
+    claims:
+      sub: usr_alice
+      email: alice@example.test
+    tokens: [alice-ci]
+```
+
+```bash
+curl -u myapp: http://localhost:5556/oauth/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
+  -d subject_token=alice-ci \
+  -d subject_token_type=https://hamnir.dev/token-type/persona \
+  -d scope="openid profile email"
+```
+
+The response is a standard token response for Alice, with the same claims, lifetimes and revocation behaviour as a picker login. That `subject_token_type` URI is hamnir's stable identifier for persona tokens — RFC 8693 reserves the standard types for tokens an authorization server actually issued, and invites exactly this kind of URI for everything else.
+
+Against the [example config](examples/hamnir.yaml) — which registers `example-webapp` as a public client rather than running permissive mode — the same call is `curl -u example-webapp: http://localhost:5556/oauth/token -d ... -d subject_token=tkn-marcus ...`.
+
+The knobs:
+
+- `scope` defaults to `openid profile email` when omitted.
+- Also want a refresh token? Request it with `-d requested_token_type=urn:ietf:params:oauth:token-type:refresh_token` — the response then carries both tokens (the access token in `access_token` and the refresh token in `refresh_token`; `issued_token_type` reflects your request).
+- Ask for an ID token instead with `-d requested_token_type=urn:ietf:params:oauth:token-type:id_token`.
+- Your configured `audiences:` apply to exchanged tokens just like every other flow. Override per request with `-d audience=https://other.test` — the override applies to the tokens from that exchange; refreshed tokens re-derive their audience from config.
+- In permissive mode, `-u myapp:` just names the client your tokens are minted for (any id, no secret). With registered clients, use one of them: a client with a `secret` authenticates as usual (`-u id:secret`), and a public client simply identifies itself with an empty secret (`-u id:`).
+
 ## What you can configure
 
 Everything lives in one config file — `hamnir init` scaffolds it and `hamnir validate` checks it. The [example config](examples/hamnir.yaml) walks through each of these in comments:
 
 - **Personas** — your test users and whatever claims you want them to carry: email, name, roles, anything custom.
+- **Programmatic login** — give a persona `tokens:` and exchange one for real tokens in a single request — no browser needed.
 - **Groups** — organise personas into labelled sections in the picker.
 - **Avatars & static content** — serve local images and reference them from a persona's `picture` claim.
 - **Clients** — register specific clients to leave permissive mode and match redirect URIs exactly.

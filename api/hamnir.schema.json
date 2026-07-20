@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/strangemattersystems/hamnir/main/api/hamnir.schema.json",
   "title": "hamnir config",
-  "description": "Configuration for hamnir, a persona-first OIDC dev provider. Note: cross-referential rules (persona.group must match a groups[].id, sub unique across personas, client ids unique, static mount keys not colliding after leading-slash normalisation) are enforced by hamnir at load time, not by this schema.",
+  "description": "Configuration for hamnir, a persona-first OIDC dev provider. Note: cross-referential rules (persona.group must match a groups[].id, sub unique across personas, client ids unique, persona tokens non-empty and unique across the config, static mount keys not colliding after leading-slash normalisation) are enforced by hamnir at load time, not by this schema.",
   "type": "object",
   "additionalProperties": false,
   "dependentRequired": { "browser_url": ["issuer"] },
@@ -168,6 +168,11 @@
               "description": "Stable subject identifier. Required, and unique across personas."
             }
           }
+        },
+        "tokens": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Optional static secrets for programmatic login: each can be exchanged for real tokens via the OAuth 2.0 token exchange grant (RFC 8693) — POST the string as subject_token with subject_token_type https://hamnir.dev/token-type/persona to the token endpoint. Any non-empty string works; must be unique across all personas (enforced by hamnir at load time)."
         }
       }
     }
