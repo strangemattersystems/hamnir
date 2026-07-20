@@ -987,6 +987,7 @@ func TestStorage_LoginHint(t *testing.T) {
 		{"login forces the picker", &oidc.AuthRequest{ClientID: "c", LoginHint: "a", Prompt: oidc.SpaceDelimitedArray{oidc.PromptLogin}}, false, "a", false},
 		{"no hint", &oidc.AuthRequest{ClientID: "c"}, false, "", false},
 		{"completed request keeps hint but not auto", &oidc.AuthRequest{ClientID: "c", LoginHint: "a"}, true, "a", false},
+		{"other prompt values keep auto", &oidc.AuthRequest{ClientID: "c", LoginHint: "a", Prompt: oidc.SpaceDelimitedArray{oidc.PromptConsent}}, false, "a", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
