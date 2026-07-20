@@ -14,7 +14,7 @@ Two steps: create a config that lists your personas, then run the server on it. 
 
 Scaffold a starter config as `./hamnir.yaml`.
 
-With the CLI:
+With the CLI — `go install` it, or grab a prebuilt binary for macOS, Linux or Windows from the [releases page](https://github.com/strangemattersystems/hamnir/releases/latest):
 
 ```bash
 go install github.com/strangemattersystems/hamnir/cmd/hamnir@latest
