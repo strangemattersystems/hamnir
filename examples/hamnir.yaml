@@ -61,6 +61,7 @@ personas:
       email: marcus@example.test
       email_verified: true
       name: Marcus Reed
+      preferred_username: marcusreed
       department: Engineering
       picture: hamnir://avatars/marcus.svg
     tokens:
@@ -73,6 +74,7 @@ personas:
       email: priya@example.test
       email_verified: true
       name: Priya Anand
+      preferred_username: priya-anand
       department: Design
       picture: hamnir://avatars/priya.svg
     tokens:
@@ -85,6 +87,7 @@ personas:
       email: theo@example.test
       email_verified: true
       name: Theo Novak
+      preferred_username: theonovak
       department: Support
       picture: hamnir://avatars/theo.svg
     tokens:
@@ -97,6 +100,7 @@ personas:
       email: elena@example.test
       email_verified: true
       name: Elena Marsh
+      preferred_username: elena-marsh
       department: Engineering
       picture: hamnir://avatars/elena.svg
     tokens:
@@ -109,6 +113,7 @@ personas:
       email: robin@example.test
       email_verified: true
       name: Robin Cole
+      preferred_username: robin-cole
       plan: free
       picture: hamnir://avatars/robin.svg
     tokens:
@@ -121,6 +126,7 @@ personas:
       email: ivy@example.test
       email_verified: true
       name: Ivy Tran
+      preferred_username: ivytran
       plan: pro
       picture: hamnir://avatars/ivy.svg
     tokens:
@@ -133,6 +139,7 @@ personas:
       email: maya@example.test
       email_verified: true
       name: Maya Okoye
+      preferred_username: maya-okoye
       plan: trial
       picture: hamnir://avatars/maya.svg
     tokens:
@@ -145,6 +152,7 @@ personas:
       email: george@example.test
       email_verified: true
       name: George Ellis
+      preferred_username: georgeellis
       plan: enterprise
       picture: hamnir://avatars/george.svg
     tokens:
