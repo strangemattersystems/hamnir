@@ -167,7 +167,13 @@ func (s *Storage) pruneSessionsLocked(now time.Time) {
 }
 
 func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
-	if len(authReq.Prompt) == 1 && authReq.Prompt[0] == oidc.PromptNone {
+	// OIDC Core §3.1.2.1: prompt=none means "no interaction", which hamnir's
+	// picker cannot honour, and combining none with any other value MUST be
+	// rejected outright.
+	if slices.Contains(authReq.Prompt, oidc.PromptNone) {
+		if len(authReq.Prompt) > 1 {
+			return nil, oidc.ErrInvalidRequest().WithDescription("prompt none must not be combined with other values")
+		}
 		return nil, oidc.ErrLoginRequired()
 	}
 

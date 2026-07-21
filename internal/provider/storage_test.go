@@ -499,6 +499,17 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 			t.Fatalf("want ErrLoginRequired, got %v", err)
 		}
 	})
+
+	// OIDC Core §3.1.2.1: prompt none combined with any other value MUST error.
+	t.Run("prompt=none with other values is refused", func(t *testing.T) {
+		t.Parallel()
+
+		st := newTestStorage(t)
+		req := &oidc.AuthRequest{ClientID: "c", Prompt: oidc.SpaceDelimitedArray{oidc.PromptNone, oidc.PromptLogin}}
+		if _, err := st.CreateAuthRequest(ctx, req, ""); !errors.Is(err, oidc.ErrInvalidRequest()) {
+			t.Fatalf("want ErrInvalidRequest, got %v", err)
+		}
+	})
 }
 
 // TestStorage_Revocation pins RFC 7009 semantics: only the client a token was
