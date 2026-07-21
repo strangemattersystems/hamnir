@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -98,7 +99,7 @@ func Load(path string) (*Config, error) {
 	if err := yaml.UnmarshalWithOptions(raw, &cfg, yaml.DisallowUnknownField()); err != nil {
 		return nil, fmt.Errorf("parsing config file %q: %w", path, err)
 	}
-	if err := cfg.normalise(); err != nil {
+	if err := cfg.normalise(filepath.Dir(path)); err != nil {
 		return nil, fmt.Errorf("invalid config %q: %w", path, err)
 	}
 	if err := cfg.Validate(); err != nil {
@@ -116,9 +117,11 @@ func Load(path string) (*Config, error) {
 // normalise canonicalises the parsed config: the base URLs lose a trailing
 // "/", each static mount key loses a single leading "/" (so "/avatars" and
 // "avatars" are equivalent — configuring both is an error, not a silent
-// collapse), and the substitution prefix gets its default. Everything
-// downstream of Load can rely on these forms.
-func (c *Config) normalise() error {
+// collapse), relative mount dirs are anchored to the config file's directory
+// (baseDir) so they mean the same thing wherever the process starts, and the
+// substitution prefix gets its default. Everything downstream of Load can
+// rely on these forms.
+func (c *Config) normalise(baseDir string) error {
 	c.Issuer = strings.TrimSuffix(c.Issuer, "/")
 	c.BrowserURL = strings.TrimSuffix(c.BrowserURL, "/")
 	if len(c.Static.Paths) > 0 {
@@ -127,6 +130,10 @@ func (c *Config) normalise() error {
 			mount := strings.TrimPrefix(k, "/")
 			if _, exists := norm[mount]; exists {
 				return fmt.Errorf("static mount %q: %w", mount, errDuplicateStaticMount)
+			}
+			// Empty dirs stay empty so Validate can reject them.
+			if v != "" && !filepath.IsAbs(v) {
+				v = filepath.Join(baseDir, v)
 			}
 			norm[mount] = v
 		}

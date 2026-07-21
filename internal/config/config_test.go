@@ -206,6 +206,64 @@ func TestLoad_NormalisesURLs(t *testing.T) {
 	}
 }
 
+// TestLoad_ConfigRelativeStaticPaths pins the anchor for relative static
+// mount dirs: the config file's directory, not the process CWD.
+func TestLoad_ConfigRelativeStaticPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("relative dir resolves against config dir", func(t *testing.T) {
+		t.Parallel()
+
+		p := writeTemp(t, "issuer: http://hamnir:5556\nstatic:\n  paths: { avatars: avatars }\n"+
+			"personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars/eve.svg }\n")
+		dir := filepath.Dir(p)
+		if err := os.Mkdir(filepath.Join(dir, "avatars"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "avatars", "eve.svg"), []byte("<svg/>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg, err := Load(p)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got, want := cfg.Static.Paths["avatars"], filepath.Join(dir, "avatars"); got != want {
+			t.Errorf("Static.Paths[avatars] = %q, want %q", got, want)
+		}
+		if got, want := cfg.Personas[0].Claims["picture"], "http://hamnir:5556/.static/avatars/eve.svg"; got != want {
+			t.Errorf("picture = %v, want %q", got, want)
+		}
+	})
+
+	t.Run("absolute dir untouched", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "eve.svg"), []byte("<svg/>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(writeTemp(t, "issuer: http://hamnir:5556\nstatic:\n  paths: { avatars: "+dir+" }\n"+
+			"personas:\n  - claims: { sub: usr_eve, picture: hamnir://avatars/eve.svg }\n"))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got := cfg.Static.Paths["avatars"]; got != dir {
+			t.Errorf("Static.Paths[avatars] = %q, want %q", got, dir)
+		}
+	})
+
+	t.Run("empty dir still rejected", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := Load(writeTemp(t, "issuer: http://hamnir:5556\nstatic:\n  paths: { avatars: '' }\n"+
+			"personas:\n  - claims: { sub: usr_eve }\n"))
+		if !errors.Is(err, errEmptyStaticDir) {
+			t.Fatalf("Load() err = %v, want %v", err, errEmptyStaticDir)
+		}
+	})
+}
+
 func TestLoad_ResolvesStaticClaims(t *testing.T) {
 	t.Parallel()
 
