@@ -53,6 +53,7 @@ type fakeExchangeRequest struct {
 	clientID           string
 	exchangeSubject    string
 	scopes             []string
+	audiences          []string
 	requestedTokenType oidc.TokenType
 }
 
@@ -60,6 +61,7 @@ func (r *fakeExchangeRequest) GetSubject() string                    { return r.
 func (r *fakeExchangeRequest) GetClientID() string                   { return r.clientID }
 func (r *fakeExchangeRequest) GetExchangeSubject() string            { return r.exchangeSubject }
 func (r *fakeExchangeRequest) GetScopes() []string                   { return r.scopes }
+func (r *fakeExchangeRequest) GetAudience() []string                 { return r.audiences }
 func (r *fakeExchangeRequest) GetRequestedTokenType() oidc.TokenType { return r.requestedTokenType }
 func (r *fakeExchangeRequest) SetSubject(sub string)                 { r.subject = sub }
 func (r *fakeExchangeRequest) SetRequestedTokenType(tt oidc.TokenType) {

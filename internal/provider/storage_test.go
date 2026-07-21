@@ -132,7 +132,7 @@ func TestNewStorage(t *testing.T) {
 			t.Errorf("refresh ttl = %v, want %v", st.refresh.ttl, lt.RefreshToken)
 		}
 
-		_, exp := st.storeAccessToken(TokenClaims{})
+		_, exp := st.storeAccessToken(TokenClaims{}, nil)
 		if got := time.Until(exp); got < lt.AccessToken-time.Minute || got > lt.AccessToken+time.Minute {
 			t.Errorf("access token expiry in %v, want ~%v", got, lt.AccessToken)
 		}
@@ -184,12 +184,12 @@ func TestStorage_Eviction(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStorage(t)
-		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice"})
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice"}, nil)
 		st.mu.Lock()
 		st.accessTokens[jti].expiration = time.Now().Add(-time.Minute)
 		st.mu.Unlock()
 
-		st.storeAccessToken(TokenClaims{Sub: "usr_alice"})
+		st.storeAccessToken(TokenClaims{Sub: "usr_alice"}, nil)
 		st.mu.Lock()
 		_, ok := st.accessTokens[jti]
 		st.mu.Unlock()
@@ -317,8 +317,8 @@ func TestStorage_Sessions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		jtiA, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sidA})
-		jtiB, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-b", SID: sidB})
+		jtiA, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a", SID: sidA}, nil)
+		jtiB, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-b", SID: sidB}, nil)
 
 		if err := st.TerminateSession(ctx, "usr_alice", "app-a"); err != nil {
 			t.Fatal(err)
@@ -490,13 +490,30 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 		}
 	})
 
+	// OIDC Core §3.1.2.1: prompt=none demands no interaction, which hamnir's
+	// picker cannot honour (login_required); combined with any other value it
+	// is self-contradictory and MUST be rejected outright (invalid_request).
 	t.Run("prompt=none is refused", func(t *testing.T) {
 		t.Parallel()
 
-		st := newTestStorage(t)
-		req := &oidc.AuthRequest{ClientID: "c", Prompt: oidc.SpaceDelimitedArray{oidc.PromptNone}}
-		if _, err := st.CreateAuthRequest(ctx, req, ""); !errors.Is(err, oidc.ErrLoginRequired()) {
-			t.Fatalf("want ErrLoginRequired, got %v", err)
+		tests := []struct {
+			name    string
+			prompt  oidc.SpaceDelimitedArray
+			wantErr error
+		}{
+			{"sole none", oidc.SpaceDelimitedArray{oidc.PromptNone}, oidc.ErrLoginRequired()},
+			{"none with other values", oidc.SpaceDelimitedArray{oidc.PromptNone, oidc.PromptLogin}, oidc.ErrInvalidRequest()},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				st := newTestStorage(t)
+				req := &oidc.AuthRequest{ClientID: "c", Prompt: tt.prompt}
+				if _, err := st.CreateAuthRequest(ctx, req, ""); !errors.Is(err, tt.wantErr) {
+					t.Fatalf("want %v, got %v", tt.wantErr, err)
+				}
+			})
 		}
 	})
 }
@@ -533,7 +550,7 @@ func TestStorage_Revocation(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStorage(t)
-		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a"})
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a"}, nil)
 		if oidcErr := st.RevokeToken(ctx, jti, "usr_alice", "app-b"); oidcErr == nil {
 			t.Fatal("another client must not revoke the access token")
 		}
@@ -601,7 +618,7 @@ func TestStorage_Revocation(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStorage(t)
-		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a"})
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "app-a"}, nil)
 		if oidcErr := st.RevokeToken(ctx, jti, "usr_alice", "app-a"); oidcErr != nil {
 			t.Fatalf("own access-token revocation should succeed: %v", oidcErr)
 		}
@@ -643,8 +660,8 @@ func TestStorage_Revocation(t *testing.T) {
 }
 
 // TestStorage_SetIntrospectionFromToken pins the introspection endpoint's view
-// of an access token: an active token reports its client, subject and scopes;
-// an unknown or expired token is rejected.
+// of an access token: an active token reports its client, subject, scopes and
+// audience; an unknown or expired token is rejected.
 func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 	t.Parallel()
 
@@ -654,7 +671,7 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStorage(t)
-		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}}, nil)
 
 		var resp oidc.IntrospectionResponse
 		if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "isen"); err != nil {
@@ -668,6 +685,41 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 		}
 		if len(resp.Scope) != 1 || resp.Scope[0] != "openid" {
 			t.Errorf("Scope = %v, want [openid]", resp.Scope)
+		}
+	})
+
+	// RFC 7662 §2.2: the response's aud mirrors the token's intended audience,
+	// so introspection-based middleware can validate it without decoding JWTs.
+	t.Run("token audience is reported", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name      string
+			audiences []string
+			want      string
+		}{
+			{"configured audience", []string{"https://api.example.test"}, "https://api.example.test"},
+			{"default is the client id", nil, "isen"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				st := newTestStorage(t)
+				req := &authRequest{clientID: "isen", subject: "usr_alice", scopes: []string{"openid"}, audiences: tt.audiences}
+				jti, _, err := st.CreateAccessToken(ctx, req)
+				if err != nil {
+					t.Fatalf("CreateAccessToken: %v", err)
+				}
+
+				var resp oidc.IntrospectionResponse
+				if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "isen"); err != nil {
+					t.Fatalf("SetIntrospectionFromToken: %v", err)
+				}
+				if len(resp.Audience) != 1 || resp.Audience[0] != tt.want {
+					t.Errorf("Audience = %v, want [%s]", resp.Audience, tt.want)
+				}
+			})
 		}
 	})
 
@@ -685,7 +737,7 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStorage(t)
-		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}}, nil)
 		st.mu.Lock()
 		st.accessTokens[jti].expiration = time.Now().Add(-time.Minute)
 		st.mu.Unlock()
@@ -709,7 +761,7 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 			config.Client{ID: "public"},
 			config.Client{ID: "confidential", Secret: "s3cret"},
 		)
-		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}}, nil)
 
 		tests := []struct {
 			name     string
@@ -735,7 +787,7 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStorage(t) // no clients configured
-		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}})
+		jti, _ := st.storeAccessToken(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid"}}, nil)
 		var resp oidc.IntrospectionResponse
 		if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "anything"); err != nil {
 			t.Fatalf("permissive mode should admit any caller: %v", err)

@@ -57,7 +57,7 @@
         },
         "paths": {
           "type": "object",
-          "description": "Map of mount name to local directory. Each is served under /.static/<mount>/. Reference a file as <prefix><mount>/<file>. Mount names must be non-empty and must not contain \"/\" or \"..\" (a single leading \"/\" is tolerated and stripped).",
+          "description": "Map of mount name to local directory. Each is served under /.static/<mount>/. Reference a file as <prefix><mount>/<file>. Relative directories resolve against the config file's directory. Mount names must be non-empty and must not contain \"/\" or \"..\" (a single leading \"/\" is tolerated and stripped).",
           "propertyNames": { "pattern": "^/?(?!.*\\.\\.)[^/]+$" },
           "additionalProperties": { "type": "string", "minLength": 1 }
         }

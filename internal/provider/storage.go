@@ -77,6 +77,7 @@ type session struct {
 // userinfo and introspection endpoints can resolve claims from the token's jti.
 type accessTokenInfo struct {
 	TokenClaims
+	audiences  []string // the token's aud as minted (RFC 7662 §2.2 reports it)
 	expiration time.Time
 }
 
@@ -167,7 +168,13 @@ func (s *Storage) pruneSessionsLocked(now time.Time) {
 }
 
 func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
-	if len(authReq.Prompt) == 1 && authReq.Prompt[0] == oidc.PromptNone {
+	// OIDC Core §3.1.2.1: prompt=none means "no interaction", which hamnir's
+	// picker cannot honour, and combining none with any other value MUST be
+	// rejected outright.
+	if slices.Contains(authReq.Prompt, oidc.PromptNone) {
+		if len(authReq.Prompt) > 1 {
+			return nil, oidc.ErrInvalidRequest().WithDescription("prompt none must not be combined with other values")
+		}
 		return nil, oidc.ErrLoginRequired()
 	}
 
@@ -304,7 +311,7 @@ func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest
 	case op.TokenExchangeRequest, *op.DeviceAuthorizationState:
 		s.touchSession(info)
 	}
-	jti, exp := s.storeAccessToken(info)
+	jti, exp := s.storeAccessToken(info, request.GetAudience())
 	return jti, exp, nil
 }
 
@@ -320,7 +327,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	case op.TokenExchangeRequest, *op.DeviceAuthorizationState:
 		s.touchSession(info)
 	}
-	jti, exp := s.storeAccessToken(info)
+	jti, exp := s.storeAccessToken(info, request.GetAudience())
 
 	// hamnir issues refresh tokens by default (not gated on offline_access).
 	// Tokens are self-contained JWTs; a refresh request rotates to a fresh token
@@ -359,7 +366,7 @@ func (s *Storage) touchSession(info TokenClaims) {
 	s.sessions[info.Sub][info.SID] = session{clientID: info.ClientID, lastSeen: now}
 }
 
-func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration time.Time) {
+func (s *Storage) storeAccessToken(info TokenClaims, audiences []string) (jti string, expiration time.Time) {
 	jti = randID()
 	now := time.Now()
 	s.mu.Lock()
@@ -368,7 +375,9 @@ func (s *Storage) storeAccessToken(info TokenClaims) (jti string, expiration tim
 		return i.expiration.Before(now)
 	})
 	exp := now.Add(s.cfg.Lifetimes.AccessToken)
-	s.accessTokens[jti] = &accessTokenInfo{TokenClaims: info, expiration: exp}
+	// Clone: op appends into the slice GetAudience returns when minting the
+	// id_token, and the retained copy must stay the access token's aud.
+	s.accessTokens[jti] = &accessTokenInfo{TokenClaims: info, audiences: slices.Clone(audiences), expiration: exp}
 	s.mu.Unlock()
 	return jti, exp
 }
@@ -598,6 +607,7 @@ func (s *Storage) SetIntrospectionFromToken(ctx context.Context, introspection *
 	introspection.SetUserInfo(userInfo)
 	introspection.Scope = info.Scopes
 	introspection.ClientID = info.ClientID
+	introspection.Audience = info.audiences
 	introspection.Expiration = oidc.FromTime(info.expiration)
 	return nil
 }

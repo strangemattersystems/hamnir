@@ -21,9 +21,11 @@ static:
   # with this prefix are rewritten to an absolute URL under browser_url at startup.
   prefix: hamnir://
   paths:
-    # This exposes the avatars dir. We recommend mapping it to somewhere under
-    # /etc/hamnir.
-    avatars: /etc/hamnir/avatars
+    # This exposes the avatars directory that sits next to this config file:
+    # relative paths resolve against the config file's directory, so the same
+    # line works on the host and in the container (where docker-compose.yml
+    # mounts both under /etc/hamnir).
+    avatars: avatars
 
 # aud claim for access tokens (and, with the client id appended, id tokens).
 # Set this to your API's identifier if your middleware validates audience.
