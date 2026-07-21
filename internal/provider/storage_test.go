@@ -490,24 +490,30 @@ func TestStorage_AuthRequestLifecycle(t *testing.T) {
 		}
 	})
 
+	// OIDC Core §3.1.2.1: prompt=none demands no interaction, which hamnir's
+	// picker cannot honour (login_required); combined with any other value it
+	// is self-contradictory and MUST be rejected outright (invalid_request).
 	t.Run("prompt=none is refused", func(t *testing.T) {
 		t.Parallel()
 
-		st := newTestStorage(t)
-		req := &oidc.AuthRequest{ClientID: "c", Prompt: oidc.SpaceDelimitedArray{oidc.PromptNone}}
-		if _, err := st.CreateAuthRequest(ctx, req, ""); !errors.Is(err, oidc.ErrLoginRequired()) {
-			t.Fatalf("want ErrLoginRequired, got %v", err)
+		tests := []struct {
+			name    string
+			prompt  oidc.SpaceDelimitedArray
+			wantErr error
+		}{
+			{"sole none", oidc.SpaceDelimitedArray{oidc.PromptNone}, oidc.ErrLoginRequired()},
+			{"none with other values", oidc.SpaceDelimitedArray{oidc.PromptNone, oidc.PromptLogin}, oidc.ErrInvalidRequest()},
 		}
-	})
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
 
-	// OIDC Core §3.1.2.1: prompt none combined with any other value MUST error.
-	t.Run("prompt=none with other values is refused", func(t *testing.T) {
-		t.Parallel()
-
-		st := newTestStorage(t)
-		req := &oidc.AuthRequest{ClientID: "c", Prompt: oidc.SpaceDelimitedArray{oidc.PromptNone, oidc.PromptLogin}}
-		if _, err := st.CreateAuthRequest(ctx, req, ""); !errors.Is(err, oidc.ErrInvalidRequest()) {
-			t.Fatalf("want ErrInvalidRequest, got %v", err)
+				st := newTestStorage(t)
+				req := &oidc.AuthRequest{ClientID: "c", Prompt: tt.prompt}
+				if _, err := st.CreateAuthRequest(ctx, req, ""); !errors.Is(err, tt.wantErr) {
+					t.Fatalf("want %v, got %v", tt.wantErr, err)
+				}
+			})
 		}
 	})
 }
@@ -654,8 +660,8 @@ func TestStorage_Revocation(t *testing.T) {
 }
 
 // TestStorage_SetIntrospectionFromToken pins the introspection endpoint's view
-// of an access token: an active token reports its client, subject and scopes;
-// an unknown or expired token is rejected.
+// of an access token: an active token reports its client, subject, scopes and
+// audience; an unknown or expired token is rejected.
 func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 	t.Parallel()
 
@@ -687,40 +693,33 @@ func TestStorage_SetIntrospectionFromToken(t *testing.T) {
 	t.Run("token audience is reported", func(t *testing.T) {
 		t.Parallel()
 
-		st := newTestStorage(t)
-		req := &authRequest{
-			clientID: "isen", subject: "usr_alice", scopes: []string{"openid"},
-			audiences: []string{"https://api.example.test"},
+		tests := []struct {
+			name      string
+			audiences []string
+			want      string
+		}{
+			{"configured audience", []string{"https://api.example.test"}, "https://api.example.test"},
+			{"default is the client id", nil, "isen"},
 		}
-		jti, _, err := st.CreateAccessToken(ctx, req)
-		if err != nil {
-			t.Fatalf("CreateAccessToken: %v", err)
-		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
 
-		var resp oidc.IntrospectionResponse
-		if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "isen"); err != nil {
-			t.Fatalf("SetIntrospectionFromToken: %v", err)
-		}
-		if len(resp.Audience) != 1 || resp.Audience[0] != "https://api.example.test" {
-			t.Errorf("Audience = %v, want [https://api.example.test]", resp.Audience)
-		}
-	})
+				st := newTestStorage(t)
+				req := &authRequest{clientID: "isen", subject: "usr_alice", scopes: []string{"openid"}, audiences: tt.audiences}
+				jti, _, err := st.CreateAccessToken(ctx, req)
+				if err != nil {
+					t.Fatalf("CreateAccessToken: %v", err)
+				}
 
-	t.Run("default audience is the client id", func(t *testing.T) {
-		t.Parallel()
-
-		st := newTestStorage(t)
-		jti, _, err := st.CreateAccessToken(ctx, &authRequest{clientID: "isen", subject: "usr_alice", scopes: []string{"openid"}})
-		if err != nil {
-			t.Fatalf("CreateAccessToken: %v", err)
-		}
-
-		var resp oidc.IntrospectionResponse
-		if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "isen"); err != nil {
-			t.Fatalf("SetIntrospectionFromToken: %v", err)
-		}
-		if len(resp.Audience) != 1 || resp.Audience[0] != "isen" {
-			t.Errorf("Audience = %v, want [isen]", resp.Audience)
+				var resp oidc.IntrospectionResponse
+				if err := st.SetIntrospectionFromToken(ctx, &resp, jti, "usr_alice", "isen"); err != nil {
+					t.Fatalf("SetIntrospectionFromToken: %v", err)
+				}
+				if len(resp.Audience) != 1 || resp.Audience[0] != tt.want {
+					t.Errorf("Audience = %v, want [%s]", resp.Audience, tt.want)
+				}
+			})
 		}
 	})
 
