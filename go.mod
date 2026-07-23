@@ -234,8 +234,7 @@ require (
 	github.com/muhlemmer/httpforwarded v0.1.0 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
-	github.com/zitadel/logging v0.7.0 // indirect
-	github.com/zitadel/oidc/v3 v3.47.9
+	github.com/zitadel/oidc/v3 v3.48.0
 	github.com/zitadel/schema v1.3.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
