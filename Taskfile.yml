@@ -69,7 +69,35 @@ tasks:
     cmds:
       - "{{.GORELEASER}} release --snapshot --clean"
 
+  warm-proxy:
+    desc: Wait for proxy.golang.org to report the release tag
+    silent: true
+    cmds:
+      - cmd: |
+          set -eu
+          module="$(go list -m)"
+          tag="${GORELEASER_CURRENT_TAG:-$(git describe --tags --exact-match 2>/dev/null || true)}"
+          if [ -z "$tag" ]; then
+            echo "warm-proxy: not a tagged commit - skipping"
+            exit 0
+          fi
+          echo "warm-proxy: waiting for proxy.golang.org to report $module@$tag"
+          i=1
+          while [ "$i" -le 8 ]; do
+            curl -sS -o /dev/null "https://proxy.golang.org/$module/@latest" || true
+            if curl -sS "https://proxy.golang.org/$module/@v/list" 2>/dev/null | grep -qx "$tag"; then
+              echo "warm-proxy: proxy reports $tag (attempt $i)"
+              exit 0
+            fi
+            echo "warm-proxy: attempt $i/8 - $tag not in @v/list yet"
+            if [ "$i" -lt 8 ]; then sleep 4; fi
+            i=$((i + 1))
+          done
+          echo "warm-proxy: proxy.golang.org did not report $tag after 8 attempts (~28s)" >&2
+          exit 1
+
   release:
     desc: Build and publish a release (should run on a pushed tag in CI only)
+    deps: [warm-proxy]
     cmds:
       - "{{.GORELEASER}} release --clean"
