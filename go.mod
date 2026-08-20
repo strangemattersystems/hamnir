@@ -10,7 +10,7 @@ require (
 
 require github.com/coreos/go-oidc/v3 v3.20.0
 
-require github.com/urfave/cli/v3 v3.10.1
+require github.com/urfave/cli/v3 v3.11.0
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect
