@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -1067,6 +1068,36 @@ func TestStorage_LoginHint(t *testing.T) {
 
 		if hint, auto := newTestStorage(t).LoginHint("nope"); hint != "" || auto {
 			t.Errorf("LoginHint(unknown) = (%q, %v), want (\"\", false)", hint, auto)
+		}
+	})
+}
+
+func TestWithOfflineAccess(t *testing.T) {
+	t.Parallel()
+
+	t.Run("adds the scope when it is absent", func(t *testing.T) {
+		t.Parallel()
+		got := withOfflineAccess([]string{oidc.ScopeOpenID})
+		if !slices.Contains(got, oidc.ScopeOfflineAccess) {
+			t.Errorf("withOfflineAccess() = %v, want it to contain %q", got, oidc.ScopeOfflineAccess)
+		}
+	})
+
+	t.Run("returns the scopes unchanged when it is present", func(t *testing.T) {
+		t.Parallel()
+		in := []string{oidc.ScopeOpenID, oidc.ScopeOfflineAccess}
+		if got := withOfflineAccess(in); !slices.Equal(got, in) {
+			t.Errorf("withOfflineAccess(%v) = %v, want it unchanged", in, got)
+		}
+	})
+
+	t.Run("does not write into the caller's backing array", func(t *testing.T) {
+		t.Parallel()
+		backing := make([]string, 2, 3)
+		backing[0], backing[1] = oidc.ScopeOpenID, oidc.ScopeProfile
+		withOfflineAccess(backing[:1])
+		if backing[1] != oidc.ScopeProfile {
+			t.Errorf("backing[1] = %q, want %q: appended into the caller's array", backing[1], oidc.ScopeProfile)
 		}
 	})
 }
