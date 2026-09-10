@@ -8,7 +8,7 @@ require (
 	golang.org/x/text v0.41.0
 )
 
-require github.com/coreos/go-oidc/v3 v3.20.0
+require github.com/coreos/go-oidc/v3 v3.21.0
 
 require github.com/urfave/cli/v3 v3.10.1
 
