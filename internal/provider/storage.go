@@ -685,7 +685,7 @@ func withOfflineAccess(scopes []string) []string {
 	if slices.Contains(scopes, oidc.ScopeOfflineAccess) {
 		return scopes
 	}
-	return append(scopes[:len(scopes):len(scopes)], oidc.ScopeOfflineAccess)
+	return append(slices.Clip(scopes), oidc.ScopeOfflineAccess)
 }
 
 func codeChallenge(authReq *oidc.AuthRequest) *oidc.CodeChallenge {
