@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -1098,6 +1099,103 @@ func TestWithOfflineAccess(t *testing.T) {
 		withOfflineAccess(backing[:1])
 		if backing[1] != oidc.ScopeProfile {
 			t.Errorf("backing[1] = %q, want %q: appended into the caller's array", backing[1], oidc.ScopeProfile)
+		}
+	})
+}
+
+func TestStorage_AuthenticateAndComplete_maxAge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	maxAge := func(n uint) *uint { return &n }
+	login := func(t *testing.T, st *Storage, age *uint, sub string) time.Time {
+		t.Helper()
+		req, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c", MaxAge: age}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AuthenticateAndComplete(req.GetID(), sub); err != nil {
+			t.Fatal(err)
+		}
+		done, err := st.AuthRequestByID(ctx, req.GetID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return done.GetAuthTime()
+	}
+	// aged makes the persona's last login d old.
+	aged := func(st *Storage, sub string, d time.Duration) time.Time {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		st.lastLogins[sub] = time.Now().Add(-d)
+		return st.lastLogins[sub]
+	}
+
+	t.Run("keeps the login time while it is within max_age", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		first := login(t, st, maxAge(3600), "usr_alice")
+		if got := login(t, st, maxAge(1800), "usr_alice"); !got.Equal(first) {
+			t.Errorf("auth time = %v, want the first login's %v", got, first)
+		}
+	})
+
+	t.Run("authenticates again once the login is older than max_age", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		old := aged(st, "usr_alice", time.Hour)
+		got := login(t, st, maxAge(60), "usr_alice")
+		if got.Equal(old) || time.Since(got) > time.Minute {
+			t.Errorf("auth time = %v, want a new login", got)
+		}
+		if again := login(t, st, maxAge(60), "usr_alice"); !again.Equal(got) {
+			t.Errorf("auth time = %v, want the new login's %v", again, got)
+		}
+	})
+
+	t.Run("max_age 0 authenticates again", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		old := aged(st, "usr_alice", time.Second)
+		if got := login(t, st, maxAge(0), "usr_alice"); got.Equal(old) {
+			t.Errorf("auth time = %v, want a new login", got)
+		}
+	})
+
+	t.Run("without max_age it reports a new login", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		old := aged(st, "usr_alice", time.Minute)
+		if got := login(t, st, nil, "usr_alice"); got.Equal(old) {
+			t.Errorf("auth time = %v, want a new login", got)
+		}
+	})
+
+	t.Run("a login without max_age leaves the kept time alone", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		old := aged(st, "usr_alice", time.Minute)
+		login(t, st, nil, "usr_alice")
+		if got := login(t, st, maxAge(3600), "usr_alice"); !got.Equal(old) {
+			t.Errorf("auth time = %v, want the kept login %v", got, old)
+		}
+	})
+
+	t.Run("one persona's login does not answer for another", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		old := aged(st, "usr_alice", time.Minute)
+		if got := login(t, st, maxAge(3600), "usr_bob"); got.Equal(old) {
+			t.Errorf("auth time = %v, want a new login", got)
+		}
+	})
+
+	t.Run("a huge max_age does not overflow", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		old := aged(st, "usr_alice", time.Minute)
+		if got := login(t, st, maxAge(math.MaxUint32), "usr_alice"); !got.Equal(old) {
+			t.Errorf("auth time = %v, want the kept login %v", got, old)
 		}
 	})
 }

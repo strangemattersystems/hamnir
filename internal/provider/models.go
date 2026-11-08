@@ -33,6 +33,7 @@ type authRequest struct {
 	audiences     []string // resolved aud values; nil -> default [clientID]
 	loginHint     string
 	prompt        oidc.SpaceDelimitedArray
+	maxAge        *uint
 	createdAt     time.Time
 	code          string // authorization code, once issued (reverse index into Storage.codes)
 

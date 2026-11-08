@@ -61,6 +61,7 @@ type Storage struct {
 	codes           map[string]string             // authorization code -> request id
 	accessTokens    map[string]*accessTokenInfo   // jti -> token metadata
 	sessions        map[string]map[string]session // subject -> active sid -> session
+	lastLogins      map[string]time.Time          // subject -> when it last authenticated
 	deviceRequests  map[string]*deviceRequest     // device code -> request
 	deviceUserCodes map[string]string             // normalized user code -> device code
 }
@@ -115,6 +116,7 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 		codes:           make(map[string]string),
 		accessTokens:    make(map[string]*accessTokenInfo),
 		sessions:        make(map[string]map[string]session),
+		lastLogins:      make(map[string]time.Time),
 		deviceRequests:  make(map[string]*deviceRequest),
 		deviceUserCodes: make(map[string]string),
 	}, nil
@@ -138,16 +140,29 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 	sid := randID()
 	req.subject = sub
 	req.sid = sid
-	req.authTime = time.Now()
+	now := time.Now()
+	// A request with max_age keeps the persona's last login time while that
+	// login is within it, as an SSO session would. A request without one says
+	// nothing about the login, and leaves the time alone for those that do.
+	last, known := s.lastLogins[sub]
+	switch {
+	case req.maxAge == nil:
+		req.authTime = now
+	case known && now.Sub(last).Seconds() <= float64(*req.maxAge):
+		req.authTime = last
+	default:
+		req.authTime = now
+		s.lastLogins[sub] = now
+	}
 	req.done = true
 
 	// Prune sids not seen within the refresh TTL: lastSeen is refreshed on
 	// every rotation, so expiry here means no live token can carry the sid.
-	s.pruneSessionsLocked(req.authTime)
+	s.pruneSessionsLocked(now)
 	if s.sessions[sub] == nil {
 		s.sessions[sub] = make(map[string]session)
 	}
-	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: req.authTime}
+	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: now}
 	return nil
 }
 
@@ -191,6 +206,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 		audiences:     s.audienceFor(authReq.ClientID),
 		loginHint:     authReq.LoginHint,
 		prompt:        authReq.Prompt,
+		maxAge:        authReq.MaxAge,
 		createdAt:     time.Now(),
 		subject:       userID,
 	}
