@@ -26,6 +26,10 @@ const (
 	// picker tab left open across a workday must still complete, and a day of
 	// abandoned flows is still bounded memory.
 	authRequestTTL = 24 * time.Hour
+
+	// authTimeMargin is how far inside max_age a kept login must be, so it
+	// still meets max_age when the RP checks the ID token a moment later.
+	authTimeMargin = 5 * time.Second
 )
 
 // errNotSupported is returned by op.Storage methods for flows hamnir does not
@@ -142,18 +146,15 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 	req.sid = sid
 	now := time.Now()
 	// A request with max_age keeps the persona's last login time while that
-	// login is within it, as an SSO session would. A request without one says
-	// nothing about the login, and leaves the time alone for those that do.
-	last, known := s.lastLogins[sub]
-	switch {
-	case req.maxAge == nil:
-		req.authTime = now
-	case known && now.Sub(last).Seconds() <= float64(*req.maxAge):
+	// login is within it, as an SSO session would. The margin covers the RP
+	// checking auth_time later, in whole seconds, and makes max_age=0 (how
+	// prompt=login commonly arrives) always a new login.
+	req.authTime = now
+	if last, ok := s.lastLogins[sub]; ok && req.maxAge != nil &&
+		(now.Sub(last)+authTimeMargin).Seconds() < float64(*req.maxAge) {
 		req.authTime = last
-	default:
-		req.authTime = now
-		s.lastLogins[sub] = now
 	}
+	s.lastLogins[sub] = req.authTime
 	req.done = true
 
 	// Prune sids not seen within the refresh TTL: lastSeen is refreshed on
@@ -425,6 +426,8 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 	if len(sids) == 0 {
 		delete(s.sessions, userID)
 	}
+	// Logout ends the login, so the next sign-in is a new one.
+	delete(s.lastLogins, userID)
 	// Drop this client's access tokens for the user.
 	maps.DeleteFunc(s.accessTokens, func(_ string, info *accessTokenInfo) bool {
 		return info.Sub == userID && matches(info.ClientID)
