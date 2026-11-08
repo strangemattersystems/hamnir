@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -1100,4 +1101,143 @@ func TestWithOfflineAccess(t *testing.T) {
 			t.Errorf("backing[1] = %q, want %q: appended into the caller's array", backing[1], oidc.ScopeProfile)
 		}
 	})
+}
+
+func TestStorage_AuthenticateAndComplete_maxAge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	maxAge := func(n uint) *uint { return &n }
+	login := func(t *testing.T, st *Storage, age *uint, sub string) time.Time {
+		t.Helper()
+		req, err := st.CreateAuthRequest(ctx, &oidc.AuthRequest{ClientID: "c", MaxAge: age}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AuthenticateAndComplete(req.GetID(), sub); err != nil {
+			t.Fatal(err)
+		}
+		done, err := st.AuthRequestByID(ctx, req.GetID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return done.GetAuthTime()
+	}
+	// aged makes the persona's last login d old.
+	aged := func(st *Storage, sub string, d time.Duration) time.Time {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		st.lastLogins[sub] = time.Now().Add(-d)
+		return st.lastLogins[sub]
+	}
+
+	tests := []struct {
+		name   string
+		prior  time.Duration // age of usr_alice's last login
+		maxAge *uint
+		sub    string
+		kept   bool
+	}{
+		{"within max_age", time.Minute, maxAge(3600), "usr_alice", true},
+		{"huge max_age", time.Minute, maxAge(math.MaxUint), "usr_alice", true},
+		{"older than max_age", time.Hour, maxAge(60), "usr_alice", false},
+		{"inside margin", 58 * time.Second, maxAge(60), "usr_alice", false},
+		{"max_age 0", time.Second, maxAge(0), "usr_alice", false},
+		{"no max_age", time.Minute, nil, "usr_alice", false},
+		{"other persona", time.Minute, maxAge(3600), "usr_bob", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st := newTestStorage(t)
+			old := aged(st, "usr_alice", tt.prior)
+			if got := login(t, st, tt.maxAge, tt.sub); got.Equal(old) != tt.kept {
+				t.Errorf("auth time = %v, last login %v, want kept = %v", got, old, tt.kept)
+			}
+		})
+	}
+
+	t.Run("keeps across logins", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		first := login(t, st, maxAge(3600), "usr_alice")
+		for range 2 {
+			if got := login(t, st, maxAge(3600), "usr_alice"); !got.Equal(first) {
+				t.Errorf("auth time = %v, want the first login %v", got, first)
+			}
+		}
+	})
+
+	t.Run("records every login", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		aged(st, "usr_alice", 10*time.Minute)
+		latest := login(t, st, nil, "usr_alice")
+		if got := login(t, st, maxAge(3600), "usr_alice"); !got.Equal(latest) {
+			t.Errorf("auth time = %v, want the latest login %v", got, latest)
+		}
+	})
+
+	t.Run("records device approval", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		aged(st, "usr_alice", 10*time.Minute)
+		_, uc := storeDevice(t, st, "cli")
+		if err := st.ApproveDevice(uc, "usr_alice"); err != nil {
+			t.Fatal(err)
+		}
+		if got := login(t, st, maxAge(3600), "usr_alice"); time.Since(got) > time.Minute {
+			t.Errorf("auth time = %v, want the device approval's", got)
+		}
+	})
+
+	t.Run("logout forgets the login", func(t *testing.T) {
+		t.Parallel()
+		st := newTestStorage(t)
+		old := aged(st, "usr_alice", time.Minute)
+		if err := st.TerminateSession(ctx, "usr_alice", "c"); err != nil {
+			t.Fatal(err)
+		}
+		if got := login(t, st, maxAge(3600), "usr_alice"); got.Equal(old) {
+			t.Errorf("auth time = %v, want a new login", got)
+		}
+	})
+}
+
+func TestStorage_CreateAccessAndRefreshTokens_authTime(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	login := time.Unix(1_700_000_000, 0)
+	tests := []struct {
+		name string
+		req  op.TokenRequest
+	}{
+		{"code", &authRequest{subject: "usr_alice", clientID: "c", sid: "sid1", authTime: login}},
+		{"exchange", &fakeExchangeRequest{subject: "usr_alice", clientID: "c", authTime: login}},
+		{"device", &op.DeviceAuthorizationState{Subject: "usr_alice", ClientID: "c", AuthTime: login}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st := newTestStorage(t)
+			// Issue, then rotate once: both refresh tokens keep the login time.
+			req := tt.req
+			current := ""
+			for range 2 {
+				_, rt, _, err := st.CreateAccessAndRefreshTokens(ctx, req, current)
+				if err != nil {
+					t.Fatal(err)
+				}
+				refreshed, err := st.TokenRequestByRefreshToken(ctx, rt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := refreshed.GetAuthTime(); !got.Equal(login) {
+					t.Fatalf("auth time = %v, want %v", got, login)
+				}
+				req, current = refreshed, rt
+			}
+		})
+	}
 }

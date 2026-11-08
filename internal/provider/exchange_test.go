@@ -55,6 +55,7 @@ type fakeExchangeRequest struct {
 	scopes             []string
 	audiences          []string
 	requestedTokenType oidc.TokenType
+	authTime           time.Time
 }
 
 func (r *fakeExchangeRequest) GetSubject() string                    { return r.subject }
@@ -63,6 +64,7 @@ func (r *fakeExchangeRequest) GetExchangeSubject() string            { return r.
 func (r *fakeExchangeRequest) GetScopes() []string                   { return r.scopes }
 func (r *fakeExchangeRequest) GetAudience() []string                 { return r.audiences }
 func (r *fakeExchangeRequest) GetRequestedTokenType() oidc.TokenType { return r.requestedTokenType }
+func (r *fakeExchangeRequest) GetAuthTime() time.Time                { return r.authTime }
 func (r *fakeExchangeRequest) SetSubject(sub string)                 { r.subject = sub }
 func (r *fakeExchangeRequest) SetRequestedTokenType(tt oidc.TokenType) {
 	r.requestedTokenType = tt

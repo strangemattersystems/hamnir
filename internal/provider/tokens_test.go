@@ -24,7 +24,8 @@ func TestRefreshTokenManager(t *testing.T) {
 	}
 
 	t.Run("round trip", func(t *testing.T) {
-		tok, err := m.Issue(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid", "roles"}, SID: "sid1"})
+		authTime := time.Unix(1_700_000_000, 0)
+		tok, err := m.Issue(TokenClaims{Sub: "usr_alice", ClientID: "isen", Scopes: []string{"openid", "roles"}, SID: "sid1", AuthTime: authTime})
 		if err != nil {
 			t.Fatalf("issue: %v", err)
 		}
@@ -32,7 +33,7 @@ func TestRefreshTokenManager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
-		if got.Sub != "usr_alice" || got.ClientID != "isen" || got.SID != "sid1" || len(got.Scopes) != 2 {
+		if got.Sub != "usr_alice" || got.ClientID != "isen" || got.SID != "sid1" || len(got.Scopes) != 2 || !got.AuthTime.Equal(authTime) {
 			t.Fatalf("round trip mismatch: %+v", got)
 		}
 	})

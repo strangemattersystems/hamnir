@@ -26,6 +26,10 @@ const (
 	// picker tab left open across a workday must still complete, and a day of
 	// abandoned flows is still bounded memory.
 	authRequestTTL = 24 * time.Hour
+
+	// authTimeMargin is how far inside max_age a kept login must be, so it
+	// still meets max_age when the RP checks the ID token a moment later.
+	authTimeMargin = 5 * time.Second
 )
 
 // errNotSupported is returned by op.Storage methods for flows hamnir does not
@@ -61,6 +65,7 @@ type Storage struct {
 	codes           map[string]string             // authorization code -> request id
 	accessTokens    map[string]*accessTokenInfo   // jti -> token metadata
 	sessions        map[string]map[string]session // subject -> active sid -> session
+	lastLogins      map[string]time.Time          // subject -> when it last authenticated
 	deviceRequests  map[string]*deviceRequest     // device code -> request
 	deviceUserCodes map[string]string             // normalized user code -> device code
 }
@@ -115,6 +120,7 @@ func NewStorage(cfg *config.Config, set *persona.Set, key *rsa.PrivateKey) (*Sto
 		codes:           make(map[string]string),
 		accessTokens:    make(map[string]*accessTokenInfo),
 		sessions:        make(map[string]map[string]session),
+		lastLogins:      make(map[string]time.Time),
 		deviceRequests:  make(map[string]*deviceRequest),
 		deviceUserCodes: make(map[string]string),
 	}, nil
@@ -138,16 +144,26 @@ func (s *Storage) AuthenticateAndComplete(authRequestID, sub string) error {
 	sid := randID()
 	req.subject = sub
 	req.sid = sid
-	req.authTime = time.Now()
+	now := time.Now()
+	// A request with max_age keeps the persona's last login time while that
+	// login is within it, as an SSO session would. The margin covers the RP
+	// checking auth_time later, in whole seconds, and makes max_age=0 (how
+	// prompt=login commonly arrives) always a new login.
+	req.authTime = now
+	if last, ok := s.lastLogins[sub]; ok && req.maxAge != nil &&
+		(now.Sub(last)+authTimeMargin).Seconds() < float64(*req.maxAge) {
+		req.authTime = last
+	}
+	s.lastLogins[sub] = req.authTime
 	req.done = true
 
 	// Prune sids not seen within the refresh TTL: lastSeen is refreshed on
 	// every rotation, so expiry here means no live token can carry the sid.
-	s.pruneSessionsLocked(req.authTime)
+	s.pruneSessionsLocked(now)
 	if s.sessions[sub] == nil {
 		s.sessions[sub] = make(map[string]session)
 	}
-	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: req.authTime}
+	s.sessions[sub][sid] = session{clientID: req.clientID, lastSeen: now}
 	return nil
 }
 
@@ -191,6 +207,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, authReq *oidc.AuthReque
 		audiences:     s.audienceFor(authReq.ClientID),
 		loginHint:     authReq.LoginHint,
 		prompt:        authReq.Prompt,
+		maxAge:        authReq.MaxAge,
 		createdAt:     time.Now(),
 		subject:       userID,
 	}
@@ -409,6 +426,8 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 	if len(sids) == 0 {
 		delete(s.sessions, userID)
 	}
+	// Logout ends the login, so the next sign-in is a new one.
+	delete(s.lastLogins, userID)
 	// Drop this client's access tokens for the user.
 	maps.DeleteFunc(s.accessTokens, func(_ string, info *accessTokenInfo) bool {
 		return info.Sub == userID && matches(info.ClientID)
@@ -658,18 +677,18 @@ func (s *Storage) Health(ctx context.Context) error { return nil }
 func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 	switch r := req.(type) {
 	case *authRequest:
-		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes}, nil
+		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes, AuthTime: r.authTime}, nil
 	case *refreshRequest:
 		return r.TokenClaims, nil
 	case op.TokenExchangeRequest:
 		// A token exchange is a fresh programmatic login: mint a new session
 		// id so its refresh tokens are revocable like any other session's.
-		return TokenClaims{Sub: r.GetSubject(), ClientID: r.GetClientID(), SID: randID(), Scopes: r.GetScopes()}, nil
+		return TokenClaims{Sub: r.GetSubject(), ClientID: r.GetClientID(), SID: randID(), Scopes: r.GetScopes(), AuthTime: r.GetAuthTime()}, nil
 	case *op.DeviceAuthorizationState:
 		// A device authorization is a fresh login outside the picker flow:
 		// mint a new session id so its refresh tokens are revocable like any
 		// other session's (same treatment as a token exchange).
-		return TokenClaims{Sub: r.Subject, ClientID: r.ClientID, SID: randID(), Scopes: r.Scopes}, nil
+		return TokenClaims{Sub: r.Subject, ClientID: r.ClientID, SID: randID(), Scopes: r.Scopes, AuthTime: r.AuthTime}, nil
 	default:
 		// No other flow should reach token creation (unsupported grants are
 		// cut off earlier); minting from an unknown type would silently issue

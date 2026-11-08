@@ -61,6 +61,20 @@ func TestAuthCodeFlow(t *testing.T) {
 		if refreshed.AccessToken == "" {
 			t.Fatal("refresh returned no access token")
 		}
+
+		// The refreshed id_token keeps the original auth_time (OIDC Core §12.2).
+		rawRefreshed, _ := refreshed.Extra("id_token").(string)
+		refreshedID, err := e.rp.Verifier(&oidc.Config{ClientID: "isen"}).Verify(e.ctx, rawRefreshed)
+		if err != nil {
+			t.Fatalf("verify refreshed id_token: %v", err)
+		}
+		var refreshedClaims map[string]any
+		if err := refreshedID.Claims(&refreshedClaims); err != nil {
+			t.Fatal(err)
+		}
+		if claims["auth_time"] == nil || refreshedClaims["auth_time"] != claims["auth_time"] {
+			t.Fatalf("refreshed auth_time = %v, want %v", refreshedClaims["auth_time"], claims["auth_time"])
+		}
 	})
 
 	// confidential client without pkce: permissive mode must accept the other

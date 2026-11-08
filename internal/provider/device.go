@@ -119,6 +119,7 @@ func (s *Storage) ApproveDevice(userCode, sub string) error {
 	now := time.Now()
 	req.subject = sub
 	req.authTime = now
+	s.lastLogins[sub] = now
 	req.done = true
 
 	// No session is registered here: op.DeviceAuthorizationState cannot carry
