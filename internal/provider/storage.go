@@ -677,18 +677,18 @@ func (s *Storage) Health(ctx context.Context) error { return nil }
 func requestInfo(req op.TokenRequest) (TokenClaims, error) {
 	switch r := req.(type) {
 	case *authRequest:
-		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes}, nil
+		return TokenClaims{Sub: r.subject, ClientID: r.clientID, SID: r.sid, Scopes: r.scopes, AuthTime: r.authTime}, nil
 	case *refreshRequest:
 		return r.TokenClaims, nil
 	case op.TokenExchangeRequest:
 		// A token exchange is a fresh programmatic login: mint a new session
 		// id so its refresh tokens are revocable like any other session's.
-		return TokenClaims{Sub: r.GetSubject(), ClientID: r.GetClientID(), SID: randID(), Scopes: r.GetScopes()}, nil
+		return TokenClaims{Sub: r.GetSubject(), ClientID: r.GetClientID(), SID: randID(), Scopes: r.GetScopes(), AuthTime: r.GetAuthTime()}, nil
 	case *op.DeviceAuthorizationState:
 		// A device authorization is a fresh login outside the picker flow:
 		// mint a new session id so its refresh tokens are revocable like any
 		// other session's (same treatment as a token exchange).
-		return TokenClaims{Sub: r.Subject, ClientID: r.ClientID, SID: randID(), Scopes: r.Scopes}, nil
+		return TokenClaims{Sub: r.Subject, ClientID: r.ClientID, SID: randID(), Scopes: r.Scopes, AuthTime: r.AuthTime}, nil
 	default:
 		// No other flow should reach token creation (unsupported grants are
 		// cut off earlier); minting from an unknown type would silently issue

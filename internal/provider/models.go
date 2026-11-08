@@ -90,7 +90,7 @@ func (r *refreshRequest) GetAudience() []string {
 	return []string{r.ClientID}
 }
 
-func (r *refreshRequest) GetAuthTime() time.Time      { return time.Time{} }
+func (r *refreshRequest) GetAuthTime() time.Time      { return r.AuthTime }
 func (r *refreshRequest) GetClientID() string         { return r.ClientID }
 func (r *refreshRequest) GetScopes() []string         { return r.Scopes }
 func (r *refreshRequest) GetSubject() string          { return r.Sub }

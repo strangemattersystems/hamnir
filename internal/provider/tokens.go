@@ -20,20 +20,24 @@ var (
 const defaultRefreshAudience = "hamnir"
 
 // TokenClaims is the identity and session data hamnir threads through token
-// issuance: the subject, client, granted scopes and session id, plus — on a
-// token parsed during a refresh grant — the source token's jti.
+// issuance: the subject, client, granted scopes, session id and login time,
+// plus — on a token parsed during a refresh grant — the source token's jti.
 type TokenClaims struct {
 	Sub      string
 	ClientID string
 	Scopes   []string
 	SID      string
 	JTI      string
+	// AuthTime is when the user logged in. A refresh token carries it so a
+	// refreshed id_token keeps the original auth_time (OIDC Core §12.2).
+	AuthTime time.Time
 }
 
 type refreshTokenClaims struct {
-	ClientID string   `json:"cid"`
-	Scopes   []string `json:"scopes"`
-	SID      string   `json:"sid"`
+	ClientID string           `json:"cid"`
+	Scopes   []string         `json:"scopes"`
+	SID      string           `json:"sid"`
+	AuthTime *jwt.NumericDate `json:"auth_time,omitempty"`
 }
 
 // RefreshTokenManager issues and verifies hamnir's self-contained refresh
@@ -82,7 +86,7 @@ func (m *RefreshTokenManager) Issue(rc TokenClaims) (string, error) {
 		Expiry:    jwt.NewNumericDate(now.Add(m.ttl)),
 		NotBefore: jwt.NewNumericDate(now),
 	}
-	private := refreshTokenClaims{ClientID: rc.ClientID, Scopes: rc.Scopes, SID: rc.SID}
+	private := refreshTokenClaims{ClientID: rc.ClientID, Scopes: rc.Scopes, SID: rc.SID, AuthTime: jwt.NewNumericDate(rc.AuthTime)}
 	return jwt.Signed(m.signer).Claims(registered).Claims(private).Serialize()
 }
 
@@ -131,6 +135,9 @@ func (m *RefreshTokenManager) decode(token string) (TokenClaims, error) {
 		Scopes:   private.Scopes,
 		SID:      private.SID,
 		JTI:      registered.ID,
+		// A token issued before refresh tokens carried auth_time decodes to
+		// the zero time, so its refreshed id_token omits auth_time as before.
+		AuthTime: private.AuthTime.Time(),
 	}, nil
 }
 

@@ -1203,3 +1203,41 @@ func TestStorage_AuthenticateAndComplete_maxAge(t *testing.T) {
 		}
 	})
 }
+
+func TestStorage_CreateAccessAndRefreshTokens_authTime(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	login := time.Unix(1_700_000_000, 0)
+	tests := []struct {
+		name string
+		req  op.TokenRequest
+	}{
+		{"code", &authRequest{subject: "usr_alice", clientID: "c", sid: "sid1", authTime: login}},
+		{"exchange", &fakeExchangeRequest{subject: "usr_alice", clientID: "c", authTime: login}},
+		{"device", &op.DeviceAuthorizationState{Subject: "usr_alice", ClientID: "c", AuthTime: login}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st := newTestStorage(t)
+			// Issue, then rotate once: both refresh tokens keep the login time.
+			req := tt.req
+			current := ""
+			for range 2 {
+				_, rt, _, err := st.CreateAccessAndRefreshTokens(ctx, req, current)
+				if err != nil {
+					t.Fatal(err)
+				}
+				refreshed, err := st.TokenRequestByRefreshToken(ctx, rt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := refreshed.GetAuthTime(); !got.Equal(login) {
+					t.Fatalf("auth time = %v, want %v", got, login)
+				}
+				req, current = refreshed, rt
+			}
+		})
+	}
+}
