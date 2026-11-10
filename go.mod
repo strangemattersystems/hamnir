@@ -8,7 +8,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/urfave/cli/v3 v3.11.0
 	github.com/zitadel/oidc/v3 v3.49.6
-	golang.org/x/oauth2 v0.37.0
+	golang.org/x/oauth2 v0.38.0
 	golang.org/x/text v0.41.0
 )
 
